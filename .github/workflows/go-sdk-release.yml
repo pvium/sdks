@@ -1,0 +1,100 @@
+name: Release Go SDK
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "go-sdk/release.yml"
+      - ".github/workflows/go-sdk-release.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-sdk-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag Go SDK Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go-sdk/go.mod
+          cache-dependency-path: go-sdk/go.sum
+
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          version="$(awk '
+            /^[[:space:]]*go_sdk:[[:space:]]*$/ { in_go_sdk = 1; next }
+            /^[^[:space:]#][^:]*:/ { in_go_sdk = 0 }
+            in_go_sdk && /^[[:space:]]*version:[[:space:]]*/ {
+              sub(/^[[:space:]]*version:[[:space:]]*/, "")
+              sub(/[[:space:]]*#.*/, "")
+              gsub(/^"|"$/, "")
+              print
+              exit
+            }
+          ' go-sdk/release.yml)"
+
+          if [[ -z "$version" ]]; then
+            echo "go-sdk/release.yml must define go_sdk.version: vX.Y.Z" >&2
+            exit 1
+          fi
+
+          if [[ ! "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid Go SDK version '$version'. Expected semver like v0.1.0." >&2
+            exit 1
+          fi
+
+          module_path="$(cd go-sdk && go list -m)"
+          if [[ "$module_path" != "github.com/pvium/sdks/go-sdk" ]]; then
+            echo "Unexpected Go module path '$module_path'" >&2
+            exit 1
+          fi
+
+          tag="go-sdk/$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Check duplicate tag
+        shell: bash
+        run: |
+          tag="${{ steps.release.outputs.tag }}"
+
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "Tag '$tag' already exists locally." >&2
+            exit 1
+          fi
+
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "Tag '$tag' already exists on origin." >&2
+            exit 1
+          fi
+
+      - name: Test Go SDK
+        working-directory: go-sdk
+        run: go test ./...
+
+      - name: Create and push tag
+        shell: bash
+        run: |
+          tag="${{ steps.release.outputs.tag }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "Release $tag"
+          git push origin "$tag"

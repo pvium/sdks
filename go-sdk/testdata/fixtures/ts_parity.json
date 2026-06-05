@@ -1,0 +1,38 @@
+{
+  "signing": {
+    "signatureDomain": "0xbff40c4609ed81d6fc887f3ba46ac9a4e7d8f1d35187faabe560276d1852efa4",
+    "disputeHash": "0x14062cf2ee6219d2e1aef7ead2d96e2f7fa9c004b516c6cd683eebaad7614c75"
+  },
+  "payouts": {
+    "scheduledHash": "0x60e51d34504c9021f66d6c8d8c6b619acef4a009f954fb3bddeda8c14a4ced40"
+  },
+  "invites": {
+    "identity": {
+      "email": "test@example.com",
+      "wallet": "0x742d35cc6634c0532925a3b844bc454e4438f44e",
+      "detect": {
+        "type": "email",
+        "ambiguous": false
+      }
+    },
+    "proofInput": {
+      "appClientId": "client_123",
+      "batchId": "batch_123",
+      "identityType": "email",
+      "identityValue": "payee@example.com",
+      "inviteNonce": "11111111111111111111111111111111",
+      "inviteSecret": "2222222222222222222222222222222222222222222222222222222222222222",
+      "defaultPayoutAmount": 250,
+      "expiresAt": 1716250000,
+      "leaf": "0x7a3bd4cd6242241ea590d7b1f9639cd73655fdbb93008e7c61c078a058433d9c",
+      "proof": [
+        "0x0d90ae73f6dfa6ace4319a95282cedf737f0871a991ddc4b9482f5d7291a46ca"
+      ],
+      "root": "0xc7a03af7424c80c60453b3817e90dc5a36c7340e220ea3fbb90c2544200b7307"
+    },
+    "proofValid": true,
+    "masterMessage": "PVIUM_INVITE_SECRET_V2:abcdef1234567890abcdef1234567890",
+    "derivedMaster": "bef57ec7f53a6d40beb640a780a639c83bc29ac8a9816f1fc6c5c6dcd93c4721",
+    "derivedInvite": "af3ade93a3112df78da544ba3fe7c25abb2048c391dc191c42cb0f2b28fdc61d"
+  }
+}
