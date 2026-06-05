@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pvium-sdk"
+version = "0.1.0"
+description = "Python SDK for the Pvium API"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Pvium" }]
+dependencies = [
+  "eth-abi>=5.1.0",
+  "eth-account>=0.13.0",
+  "eth-keys>=0.6.0",
+  "eth-utils>=5.0.0",
+]
+
+[project.optional-dependencies]
+async = [
+  "httpx>=0.27.0",
+]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["pvium_sdk*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
