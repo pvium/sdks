@@ -1,10 +1,16 @@
 {
   "name": "@pvium/sdk",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "TypeScript SDK for the Pvium API",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "commonjs",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "pvium-api-swagger-doc.json"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/pvium/node-sdk.git"

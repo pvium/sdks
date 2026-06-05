@@ -5,7 +5,7 @@ Python SDK equivalent of the Pvium TypeScript SDK.
 ## Project Structure
 
 ```text
-pvium-sdk/
+python-sdk/
   src/pvium_sdk/
     core/
       client.py
@@ -38,10 +38,10 @@ pvium-sdk/
 ## Install
 
 ```bash
-pip install -e .
+pip install pvium
 ```
 
-For development and tests:
+For local development and tests:
 
 ```bash
 pip install -e '.[dev]'
@@ -62,6 +62,51 @@ pvium = PviumSdk.init(
 
 invoices = pvium.endpoints.listInvoices()
 print(invoices)
+```
+
+## Scheduled Payout Quick Start
+
+Use scheduled payouts for larger payout batches. If a payout has more than 200
+payees, create a scheduled payout instead of an instant payout.
+
+```python
+from uuid import uuid4
+
+from pvium_sdk import PayoutCurrency, PviumSdk, PviumSdkConfig
+
+pvium = PviumSdk.init(
+    PviumSdkConfig(
+        environment="sandbox",
+        apiKey="your_api_key",
+        clientId="your_client_id",
+    )
+)
+
+scheduled = pvium.payout.createFinalized(
+    {
+        "id": str(uuid4()),
+        "type": "Scheduled",
+        "chain": "base",
+        "name": "March creator payouts",
+        "payoutCurrency": PayoutCurrency.USDC,
+        "scheduleDate": 1777488000,
+        "payments": [
+            {
+                "receiver": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+                "amount": 100,
+                "memo": "March payout",
+            },
+            # Add the rest of the payees here.
+        ],
+    },
+    "your_signer_private_key",
+    {
+        "timestamp": 1777487451,
+        "claimDate": 1777488000,
+    },
+)
+
+print(scheduled.fundingUrl)
 ```
 
 ## Async Usage
@@ -147,6 +192,9 @@ payout_intent = pvium.payout.create({
 finalized = payout_intent.finalize("your_signer_private_key")
 print(finalized.fundingUrl)
 ```
+
+Instant payouts are best for smaller batches. Prefer scheduled payouts when the
+batch has more than 200 payees.
 
 Batch detail responses include up to 250 embedded `payments`. If the payout has
 more, the response meta/data includes truncation fields such as
