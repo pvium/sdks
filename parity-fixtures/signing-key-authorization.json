@@ -1,0 +1,15 @@
+{
+  "privateKey": "0x59c6995e998f97a5a004497e5daaaa853d873599e62e568a0a7d3a57c5fd8d0d",
+  "fundingSigner": "0xdcabd312abefde67cf80e71f1cba08005490828f",
+  "networkType": "ethereum",
+  "input": {
+    "batchHash": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "signingKey": "0x0000000000000000000000000000000000000002",
+    "transactionMax": "1000000",
+    "totalMax": "5000000",
+    "expiration": "1777488000",
+    "timestamp": "1777487451"
+  },
+  "authMessageHash": "0x4679f16b1d92f1e273ea4d53b0ad2a14ff3a7a988763140885d132efeb7b1d27",
+  "signature": "0x609ca91ca6a8f15b9947bf3e1602afa82d2741102a1f03982a9c45fc3bacd3b51f93e0e1b2a2f5d6112746a029d919ce76ee6311f59dd878305bf5c12a8938461b"
+}
