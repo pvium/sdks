@@ -1,0 +1,34 @@
+{
+  "name": "@pvium/sdk",
+  "version": "0.3.0",
+  "description": "TypeScript SDK for the Pvium API",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pvium/node-sdk.git"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.js",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "pvium",
+    "sdk",
+    "typescript",
+    "openapi"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/crypto-js": "^4.2.2",
+    "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "crypto-js": "^4.2.0",
+    "ethers": "^6.16.0",
+    "keccak256": "^1.0.6",
+    "merkletreejs": "^0.6.0"
+  }
+}

@@ -1,0 +1,386 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/v1/invoices": {
+      "post": {
+        "operationId": "createContract",
+        "summary": "Create a new contract/invoice",
+        "description": "Create a new contract or invoice",
+        "parameters": [],
+        "responses": { "201": { "description": "" } },
+        "tags": ["Contract"],
+        "security": [{ "x-auth-token": [] }]
+      },
+      "get": {
+        "operationId": "ContractController_find",
+        "parameters": [],
+        "responses": { "200": { "description": "" } },
+        "tags": ["Contract"],
+        "security": [{ "x-auth-token": [] }]
+      },
+      "delete": {
+        "operationId": "ContractController_removeMany",
+        "parameters": [],
+        "responses": { "200": { "description": "" } },
+        "tags": ["Contract"],
+        "security": [{ "bearer": [] }]
+      }
+    },
+    "/v1/invoices/{code}/status": {
+      "get": {
+        "operationId": "getInvoiceStatus",
+        "summary": "Get invoice status",
+        "description": "Get invoice status by code",
+        "parameters": [
+          {
+            "name": "code",
+            "required": true,
+            "in": "path",
+            "description": "Contract code or ID",
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": { "200": { "description": "" } },
+        "tags": ["Contract"]
+      }
+    },
+    "/v1/payment-installments/{id}/payments": {
+      "get": {
+        "operationId": "getInstallmentPayments",
+        "summary": "Get payments associated with a specific installment",
+        "description": "Retrieve all payments associated with a specific installment",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": { "type": "number" }
+          }
+        ],
+        "responses": { "200": { "description": "" } },
+        "tags": ["Invoice Payment Plan Installments"],
+        "security": [{ "x-auth-token": [] }]
+      }
+    }
+  },
+  "info": {
+    "title": "Pvium API Documentation",
+    "description": "The Pvium Payment API documentation",
+    "version": "0.0.1",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "x-api-key": { "type": "apiKey", "in": "header", "name": "x-api-key" },
+      "bearer": {
+        "scheme": "Bearer",
+        "bearerFormat": "Bearer",
+        "description": "Please enter access token here!",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "ParseReceiptDto": {
+        "type": "object",
+        "properties": {
+          "content": { "type": "string", "example": "Joes Tutorial" }
+        },
+        "required": ["content"]
+      },
+      "CreateExpenseDto": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "example": "Joes Tutorial" },
+          "description": { "type": "string", "example": "Batch 3 payments" },
+          "category": { "type": "string", "example": "03902930930232323" },
+          "plan": {
+            "type": "object",
+            "example": {
+              "For SinglePayment": {
+                "amount": 2000,
+                "dueDate": "2026-03-04T23:52:04.089Z"
+              },
+              "For RecurringPayment": {
+                "amount": 2000,
+                "startDate": "2026-03-04T23:52:04.089Z",
+                "endDate": "2026-03-29T23:52:04.089Z",
+                "interval": "Weekly"
+              }
+            }
+          },
+          "endDate": { "type": "string", "example": "One-Time" },
+          "currencySymbol": { "type": "string", "example": "$" },
+          "tax": { "type": "number", "example": "5" },
+          "documentNumber": { "type": "number", "example": "7" },
+          "poNumber": { "type": "number", "example": "7" }
+        },
+        "required": [
+          "name",
+          "description",
+          "category",
+          "plan",
+          "endDate",
+          "currencySymbol",
+          "tax",
+          "documentNumber",
+          "poNumber"
+        ]
+      },
+      "ApiPaymentChannelDto": {
+        "type": "object",
+        "properties": {
+          "walletAddress": {
+            "type": "string",
+            "description": "Wallet address to receive payment",
+            "example": "0xabc123..."
+          },
+          "chain": {
+            "type": "string",
+            "description": "Chain to receive payment",
+            "enum": ["base", "bsc", "solana", "solana-testnet", "base-testnet"],
+            "example": "base"
+          },
+          "currency": {
+            "type": "string",
+            "description": "Currency to receive payment",
+            "enum": ["USDT", "USDC"],
+            "example": "USDC"
+          }
+        },
+        "required": ["walletAddress", "chain", "currency"]
+      },
+      "ApiCreateContractDto": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "example": "Market Fees" },
+          "description": { "type": "string", "example": "Batch 3 payments" },
+          "amount": { "type": "number", "example": "100" },
+          "dueDate": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-02-23T16:36:35.279Z"
+          },
+          "amountType": {
+            "type": "object",
+            "description": "This describes the unit of the plan amounts % => proportion of total amount to be paid",
+            "example": "% | Flat"
+          },
+          "discount": { "type": "number", "example": "100" },
+          "discountType": { "type": "object", "example": "% | Flat" },
+          "tax": { "type": "number", "example": "7" },
+          "documentNumber": { "type": "number", "example": "7" },
+          "paymentChannels": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ApiPaymentChannelDto" }
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "amount",
+          "dueDate",
+          "amountType",
+          "discount",
+          "discountType",
+          "tax",
+          "documentNumber"
+        ]
+      },
+      "UpdateContractDto": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "example": "Joes Tutorial" },
+          "description": { "type": "string", "example": "Batch 3 payments" },
+          "active": { "type": "boolean", "example": true },
+          "documentNumber": { "type": "number", "example": 7 },
+          "poNumber": { "type": "object", "example": "7" },
+          "payerCategory": { "type": "string", "example": "Loan" },
+          "payeeCategory": { "type": "string", "example": "Salary" }
+        },
+        "required": [
+          "name",
+          "description",
+          "active",
+          "documentNumber",
+          "poNumber",
+          "payerCategory",
+          "payeeCategory"
+        ]
+      },
+      "AddPaymentChannelDto": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "example": "[\"s28923h98h9d92h2\", \"28hs90hjh2p98\"]",
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["ids"]
+      },
+      "AddPayerToContractDto": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "example": "[\"s28923h98h9d92h2\", \"08928hs90hjh2p98\"]",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "emails": {
+            "example": "[\"joh@example.com\", \"xmas@pppp.com\"]",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "phoneNumbers": {
+            "example": "[\"+18023392992\", \"+15628828288\"]",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "notify": { "type": "boolean", "example": true },
+          "sendDate": { "type": "string", "example": "2023-01-23" }
+        },
+        "required": ["ids", "emails", "phoneNumbers", "notify", "sendDate"]
+      },
+      "AcceptContractDto": {
+        "type": "object",
+        "properties": {
+          "accept": { "type": "boolean", "example": "true" },
+          "payerCode": { "type": "number", "example": "2ab9ca" }
+        },
+        "required": ["accept", "payerCode"]
+      },
+      "TrackContractDto": {
+        "type": "object",
+        "properties": { "tracking": { "type": "boolean", "example": "true" } },
+        "required": ["tracking"]
+      },
+      "AddPaymentDto": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "example": "Payment hash, referrence or description"
+          },
+          "amount": { "type": "number", "example": 20000 },
+          "installment": { "type": "number", "example": 12 },
+          "payer": { "type": "string", "example": "092093029309230" },
+          "transactionId": { "type": "string", "example": "092093029309230" },
+          "transactionHash": { "type": "string", "example": "092093029309230" },
+          "paymentDate": { "type": "string", "example": "092093029309230" },
+          "paymentMethod": { "type": "string", "example": "092093029309230" }
+        },
+        "required": [
+          "description",
+          "amount",
+          "installment",
+          "payer",
+          "transactionId",
+          "transactionHash",
+          "paymentDate",
+          "paymentMethod"
+        ]
+      },
+      "AddStripePaymentDto": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "example": "Payment hash, referrence or description"
+          },
+          "amount": { "type": "number", "example": 20000 },
+          "installment": { "type": "number", "example": 12 },
+          "payer": { "type": "string", "example": "092093029309230" },
+          "paymentMethod": {
+            "type": "string",
+            "example": "Card, Credit Card, Affirm, Klarna, Afterpay"
+          },
+          "success_url": {
+            "type": "string",
+            "example": "https://payy.com/success"
+          },
+          "cancel_url": {
+            "type": "string",
+            "example": "https://payy.com/cancel"
+          }
+        },
+        "required": [
+          "description",
+          "amount",
+          "installment",
+          "payer",
+          "paymentMethod",
+          "success_url",
+          "cancel_url"
+        ]
+      },
+      "SyncTransferDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Blake3 hash of tx_hash (generated automatically)"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Token contract address"
+          },
+          "chain_id": { "type": "string", "description": "Chain identifier" },
+          "token_address": {
+            "type": "string",
+            "description": "Token contract address"
+          },
+          "from_address": { "type": "string", "description": "Sender address" },
+          "to_address": {
+            "type": "string",
+            "description": "Recipient address"
+          },
+          "value": {
+            "type": "string",
+            "description": "Transfer value as string (to preserve precision)"
+          },
+          "usd_value": {
+            "type": "number",
+            "description": "USD value at time of transfer"
+          },
+          "usd_price": {
+            "type": "number",
+            "description": "USD price per token at time of transfer"
+          },
+          "block_number": { "type": "number", "description": "Block number" },
+          "tx_hash": { "type": "string", "description": "Transaction hash" },
+          "log_index": {
+            "type": "number",
+            "description": "Log index within the transaction"
+          },
+          "timestamp": {
+            "type": "number",
+            "description": "Unix timestamp from blockchain (seconds)"
+          },
+          "synced_at": {
+            "type": "string",
+            "description": "When the transfer was synced to external endpoint"
+          },
+          "created_at": {
+            "type": "string",
+            "description": "When the transfer was inserted into the database"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "chain_id",
+          "token_address",
+          "from_address",
+          "to_address",
+          "value",
+          "block_number",
+          "tx_hash",
+          "log_index",
+          "timestamp"
+        ]
+      }
+    }
+  }
+}
