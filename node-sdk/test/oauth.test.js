@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { PviumSdk } = require("../dist/index.js");
+const { PviumApiError, PviumSdk } = require("../dist/index.js");
 
 function createMockSdk(config = {}) {
   const requests = [];
@@ -81,4 +81,43 @@ test("getAccessTokenFromRefreshToken refreshes through the OAuth token endpoint"
     grantType: "refresh_token",
     refreshToken: "refresh_token",
   });
+});
+
+test("refreshAccessToken rejects non-2xx responses with PviumApiError", async () => {
+  const { sdk } = createMockSdk({
+    fetchFn: async () =>
+      new Response(
+        JSON.stringify({
+          meta: {
+            statusCode: 401,
+            success: false,
+            message: "Unauthorized",
+            developerMessage: "Refresh token expired",
+          },
+        }),
+        {
+          status: 401,
+          statusText: "Unauthorized",
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  await assert.rejects(
+    () => sdk.oauth.refreshAccessToken({ refreshToken: "expired_refresh" }),
+    (error) => {
+      assert.ok(error instanceof PviumApiError);
+      assert.equal(error.status, 401);
+      assert.equal(error.message, "Pvium API request failed with 401: Refresh token expired");
+      assert.deepEqual(error.body, {
+        meta: {
+          statusCode: 401,
+          success: false,
+          message: "Unauthorized",
+          developerMessage: "Refresh token expired",
+        },
+      });
+      return true;
+    },
+  );
 });

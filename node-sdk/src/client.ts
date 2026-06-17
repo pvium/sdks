@@ -23,6 +23,20 @@ export interface HttpRequestConfig {
   options?: RequestOptions;
 }
 
+export class PviumApiError extends Error {
+  public readonly status: number;
+  public readonly statusText: string;
+  public readonly body: unknown;
+
+  constructor(params: { status: number; statusText: string; body: unknown }) {
+    super(getPviumApiErrorMessage(params));
+    this.name = "PviumApiError";
+    this.status = params.status;
+    this.statusText = params.statusText;
+    this.body = params.body;
+  }
+}
+
 export const PVIUM_BASE_URLS = {
   test: "http://localhost:4005/v1",
   sandbox: "https://api-sandbox.pvium.com/v1",
@@ -124,6 +138,13 @@ export class PviumHttpClient {
           status: response.status,
           ok: response.ok,
           durationMs: Date.now() - startedAt,
+        });
+      }
+      if (!response.ok) {
+        throw new PviumApiError({
+          status: response.status,
+          statusText: response.statusText,
+          body: await this.parseResponseBody<unknown>(response),
         });
       }
       return response;
@@ -238,4 +259,36 @@ export class PviumHttpClient {
     const text = await response.text();
     return text.length > 0 ? (text as unknown as T) : (null as unknown as T);
   }
+}
+
+function getPviumApiErrorMessage(params: {
+  status: number;
+  statusText: string;
+  body: unknown;
+}) {
+  const message = getPviumApiErrorBodyMessage(params.body);
+  return message
+    ? `Pvium API request failed with ${params.status}: ${message}`
+    : `Pvium API request failed with ${params.status} ${params.statusText}`;
+}
+
+function getPviumApiErrorBodyMessage(body: unknown) {
+  if (!body || typeof body !== "object") return undefined;
+  const record = body as Record<string, unknown>;
+  const meta = record.meta;
+
+  if (meta && typeof meta === "object") {
+    const metaRecord = meta as Record<string, unknown>;
+    if (typeof metaRecord.developerMessage === "string") {
+      return metaRecord.developerMessage;
+    }
+    if (typeof metaRecord.message === "string") {
+      return metaRecord.message;
+    }
+  }
+
+  if (typeof record.developerMessage === "string") return record.developerMessage;
+  if (typeof record.message === "string") return record.message;
+  if (typeof record.error === "string") return record.error;
+  return undefined;
 }
