@@ -3,6 +3,7 @@ import { PviumHttpClient, PviumSdkConfig } from "./client";
 import { PviumInviteService } from "./invites";
 import { PviumOAuth } from "./oauth";
 import { PviumPayoutService } from "./payout";
+export { PviumApiError } from "./client";
 export type { PviumSdkConfig } from "./client";
 export type {
   CreateInvoiceData,
@@ -101,11 +102,15 @@ export {
   PviumPayoutService,
 } from "./payout";
 export type {
+  AppInviteRecord,
+  FindAppInviteByIdentityInput,
+  FindAppInviteByIdentityResult,
   InviteMessageSignature,
   InviteSigningChain,
   OAuthInviteBatchData,
   OAuthInviteBundleDraft,
   OAuthInviteBundleInput,
+  OAuthInviteCommitResult,
   OAuthInviteIdentity,
   OAuthInviteSigner,
   OAuthInviteStateParams,

@@ -152,6 +152,42 @@ export interface SignedOAuthInviteBundle {
   merkle: BatchInviteMerkleDataV2;
 }
 
+export interface AppInviteRecord {
+  id?: string;
+  _id?: string;
+  identityType?: string;
+  identityValue?: string;
+  status?: string;
+  inviteNonce?: string;
+  acceptedAt?: string;
+  expiresAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  [key: string]: unknown;
+}
+
+export interface FindAppInviteByIdentityInput {
+  identityType: InviteIdentityType;
+  identityValue: string;
+  status?: string;
+}
+
+export interface FindAppInviteByIdentityResult {
+  invites: AppInviteRecord[];
+  invite: AppInviteRecord | null;
+  accepted: boolean;
+  raw: unknown;
+}
+
+export interface OAuthInviteCommitResult {
+  raw: unknown;
+  invites: AppInviteRecord[];
+  committedInvites: AppInviteRecord[];
+  existingInvites: AppInviteRecord[];
+  inviteCommitted: boolean;
+  alreadyAccepted: boolean;
+}
+
 const normalizeScopes = (scopes: string[]): string[] => {
   return Array.from(
     new Set(scopes.map((scope) => scope.trim()).filter(Boolean)),
@@ -222,6 +258,23 @@ const buildInviteState = (params: {
   }
 
   return state.toString();
+};
+
+const getResponseItems = (response: unknown): unknown[] => {
+  if (!response || typeof response !== "object") return [];
+
+  const record = response as Record<string, unknown>;
+  if (Array.isArray(record.data)) return record.data;
+  if (Array.isArray(record.value)) return record.value;
+
+  const data = record.data;
+  if (data && typeof data === "object") {
+    const dataRecord = data as Record<string, unknown>;
+    if (Array.isArray(dataRecord.value)) return dataRecord.value;
+    if (Array.isArray(dataRecord.items)) return dataRecord.items;
+  }
+
+  return [];
 };
 
 export class PviumInviteService {
@@ -412,7 +465,7 @@ export class PviumInviteService {
   async commitBundle(
     bundle: SignedOAuthInviteBundle,
     options?: RequestOptions,
-  ): Promise<unknown> {
+  ): Promise<OAuthInviteCommitResult> {
     const batchId = bundle.batchInvite?.batchId || bundle.batchId;
     const path = batchId
       ? `/v1/batch-payments/${encodeURIComponent(batchId)}/invites`
@@ -430,7 +483,68 @@ export class PviumInviteService {
       options,
     });
 
-    return this.http.parseResponseBody<unknown>(response);
+    const body = await this.http.parseResponseBody<unknown>(response);
+    const invites = getResponseItems(body) as AppInviteRecord[];
+    const requestedNonces = new Set(
+      bundle.invites.map((invite) => invite.inviteNonce),
+    );
+    const committedInvites = invites.filter(
+      (invite) =>
+        typeof invite.inviteNonce === "string" &&
+        requestedNonces.has(invite.inviteNonce),
+    );
+    const existingInvites = invites.filter(
+      (invite) =>
+        typeof invite.inviteNonce === "string" &&
+        !requestedNonces.has(invite.inviteNonce),
+    );
+
+    return {
+      raw: body,
+      invites,
+      committedInvites,
+      existingInvites,
+      inviteCommitted: committedInvites.length > 0,
+      alreadyAccepted: existingInvites.some(
+        (invite) => invite.status === "accepted",
+      ),
+    };
+  }
+
+  async findAppInviteByIdentity(
+    input: FindAppInviteByIdentityInput,
+    options?: RequestOptions,
+  ): Promise<FindAppInviteByIdentityResult> {
+    const response = await this.http.request({
+      method: "GET",
+      path: "/v1/batch-payments/app-invites",
+      query: {
+        identityType: input.identityType,
+        identityValue: input.identityValue,
+        status: input.status,
+      },
+      options,
+    });
+    const body = await this.http.parseResponseBody<unknown>(response);
+    const invites = getResponseItems(body) as AppInviteRecord[];
+    const normalizedIdentityValue = normalizeIdentityValue(
+      input.identityType,
+      input.identityValue,
+    );
+    const invite =
+      invites.find(
+        (item) =>
+          item.identityType === input.identityType &&
+          item.identityValue === normalizedIdentityValue &&
+          (!input.status || item.status === input.status),
+      ) ?? null;
+
+    return {
+      invites,
+      invite,
+      accepted: invite?.status === "accepted",
+      raw: body,
+    };
   }
 
   async createSignedBundle(

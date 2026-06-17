@@ -1,6 +1,6 @@
-# TypeScript vs Go SDK Parity Checklist
+# TypeScript vs Go/Python SDK Parity Checklist
 
-This checklist tracks parity between the TypeScript SDK and this Go SDK.
+This checklist tracks parity between the TypeScript SDK and the other SDKs.
 
 ## Completed in this pass
 
@@ -29,6 +29,22 @@ This checklist tracks parity between the TypeScript SDK and this Go SDK.
 
 ## Remaining high-impact gaps
 
+- HTTP/client error parity:
+  - expose a typed API error equivalent to TypeScript `PviumApiError`
+  - preserve response `status`, `statusText`, parsed response body, and a useful message for non-2xx responses
+  - canonical TypeScript test: `node-sdk/test/oauth.test.js` -> `refreshAccessToken rejects non-2xx responses with PviumApiError`
+- App invite lookup parity:
+  - expose an invite-service helper equivalent to TypeScript `invites.findAppInviteByIdentity`
+  - call `GET /v1/batch-payments/app-invites`
+  - support query fields `identityType`, `identityValue`, and optional `status`
+  - normalize `identityValue` before matching returned invite records
+  - return the matched invite, all returned invites, raw response, and an `accepted` boolean
+  - canonical TypeScript test: `node-sdk/test/invites.test.js` -> `finds app invites by identity through the app-invites endpoint`
+- Invite commit result parity:
+  - `commitBundle` should return a structured result rather than only the raw backend response
+  - compare returned invite nonces against the submitted bundle's nonces
+  - expose `inviteCommitted`, `alreadyAccepted`, `committedInvites`, `existingInvites`, all returned invites, and raw response
+  - canonical TypeScript test: `node-sdk/test/invites.test.js` -> `commitBundle detects returned accepted invites with different nonces`
 - Invite bundle parity:
   - richer V2 root payload structure and signature metadata
   - invite proof payload/validation parity fields

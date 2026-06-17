@@ -78,7 +78,8 @@ test("creates batch invite bundle links with explicit batchId and custom state",
     apiKey: "pk_test_dummy",
     fetchFn: async (url, init) => {
       requests.push({ url, init });
-      return new Response(JSON.stringify({ ok: true }), {
+      const body = JSON.parse(init.body);
+      return new Response(JSON.stringify({ data: body.invites }), {
         status: 201,
         headers: { "content-type": "application/json" },
       });
@@ -115,12 +116,66 @@ test("creates batch invite bundle links with explicit batchId and custom state",
   const groupUrl = new URL(signed.groupInviteLink);
   assert.equal(groupUrl.searchParams.get("batchId"), "batch_123");
 
-  await sdk.invites.commitBundle(signed);
+  const committed = await sdk.invites.commitBundle(signed);
 
   assert.equal(requests.length, 1);
   assert.equal(
     requests[0].url,
     "http://localhost:4005/v1/batch-payments/batch_123/invites",
+  );
+  assert.equal(committed.inviteCommitted, true);
+  assert.equal(committed.alreadyAccepted, false);
+  assert.equal(
+    committed.committedInvites[0].inviteNonce,
+    signed.invites[0].inviteNonce,
+  );
+});
+
+test("commitBundle detects returned accepted invites with different nonces", async () => {
+  const sdk = PviumSdk.init({
+    baseUrl: "http://localhost:4005/v1",
+    consentHost: "http://localhost:3000",
+    clientId: "app_test",
+    apiKey: "pk_test_dummy",
+    fetchFn: async () =>
+      new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "invite_existing",
+              identityType: "github",
+              identityValue: "feminefa",
+              inviteNonce: "existing_nonce",
+              status: "accepted",
+            },
+          ],
+        }),
+        {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        },
+      ),
+  });
+
+  const signed = await sdk.invites.createSignedBundle(
+    {
+      identities: [{ type: "github", value: "feminefa" }],
+      scopes: ["read:user"],
+      chain: "ethereum",
+    },
+    {
+      chain: "ethereum",
+      privateKey: TEST_PRIVATE_KEY,
+    },
+  );
+  const committed = await sdk.invites.commitBundle(signed);
+
+  assert.equal(committed.inviteCommitted, false);
+  assert.equal(committed.alreadyAccepted, true);
+  assert.equal(committed.existingInvites[0].inviteNonce, "existing_nonce");
+  assert.notEqual(
+    committed.existingInvites[0].inviteNonce,
+    signed.invites[0].inviteNonce,
   );
 });
 
@@ -164,4 +219,49 @@ test("supports separate master-secret and invite-root signers", async () => {
     verifyMessage(signed.root.signatureMessage, signed.root.signature),
     wallet.address,
   );
+});
+
+test("finds app invites by identity through the app-invites endpoint", async () => {
+  const requests = [];
+  const sdk = PviumSdk.init({
+    baseUrl: "http://localhost:4005/v1",
+    consentHost: "http://localhost:3000",
+    clientId: "app_test",
+    apiKey: "pk_test_dummy",
+    fetchFn: async (url, init) => {
+      requests.push({ url, init });
+      return new Response(
+        JSON.stringify({
+          data: [
+            {
+              id: "invite_1",
+              identityType: "github",
+              identityValue: "feminefa",
+              status: "accepted",
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    },
+  });
+
+  const result = await sdk.invites.findAppInviteByIdentity({
+    identityType: "github",
+    identityValue: "@FemInefa",
+    status: "accepted",
+  });
+
+  assert.equal(requests.length, 1);
+  const url = new URL(requests[0].url);
+  assert.equal(url.pathname, "/v1/batch-payments/app-invites");
+  assert.equal(url.searchParams.get("identityType"), "github");
+  assert.equal(url.searchParams.get("identityValue"), "@FemInefa");
+  assert.equal(url.searchParams.get("status"), "accepted");
+  assert.equal(requests[0].init.headers["x-api-key"], "pk_test_dummy");
+  assert.equal(result.accepted, true);
+  assert.equal(result.invite.id, "invite_1");
 });
