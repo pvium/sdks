@@ -1,6 +1,6 @@
 {
   "name": "@pvium/sdk",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "TypeScript SDK for the Pvium API",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
