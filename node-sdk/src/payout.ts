@@ -8,16 +8,32 @@ import {
   parseUnits,
   solidityPacked,
 } from 'ethers';
-import { MerkleTree } from "merkletreejs";
+import { MerkleTree } from 'merkletreejs';
 import {
   PviumHttpClient,
   PviumSdkConfig,
   resolvePviumConsentHost,
-} from "./client";
-import { ApiMeta, RequestOptions } from "./types";
+} from './client';
+import { ApiMeta, RequestOptions } from './types';
 
-export type PayoutType = "Instant" | "Scheduled" | "Milestone" | "Escrow";
-export type PayoutComplianceMode = "Open" | "Strict";
+export enum PayoutType {
+  Instant = 'Instant',
+  Scheduled = 'Scheduled',
+  // Milestone = 'Milestone',
+  Escrow = 'Escrow',
+  Pool = 'Pool',
+}
+
+export type PayoutTypeValue = PayoutType | `${PayoutType}`;
+export type PayoutTypeInput = PayoutTypeValue | 'Milestone';
+
+export const IsPoolPayoutType = (
+  type: PayoutTypeValue | string | undefined,
+): boolean => {
+  return type === PayoutType.Pool || type === PayoutType.Escrow;
+};
+
+export type PayoutComplianceMode = 'Open' | 'Strict';
 export type HexString = `0x${string}`;
 export type PayoutChain =
   | 'base'
@@ -80,17 +96,17 @@ interface CreatePayoutBaseInput {
 
 export type CreatePayoutInput =
   | (CreatePayoutBaseInput & {
-      type: 'Scheduled' | 'Milestone' | 'Escrow';
+      type: PayoutTypeInput;
       payoutCurrency: PayoutCurrencyInput;
       payments?: PayoutPaymentWithoutToken[];
     })
   | (CreatePayoutBaseInput & {
-      type?: PayoutType;
+      type?: PayoutTypeInput;
       payoutCurrency?: undefined;
       payments?: PayoutPayment[];
     })
   | (CreatePayoutBaseInput & {
-      type?: 'Instant';
+      type?: PayoutType.Instant | 'Instant';
       payoutCurrency?: PayoutCurrencyInput;
       payments?: PayoutPayment[];
     });
@@ -98,7 +114,7 @@ export type CreatePayoutInput =
 export interface AddPayoutPaymentsInput {
   payments: PayoutPayment[];
   /**
-   * Required when adding payments to an escrow payout. The SDK uses this to
+   * Required when adding payments to a pool payout. The SDK uses this to
    * create and finalize the linked scheduled child payout in one call.
    */
   signer?: PayoutSignerInput;
@@ -181,7 +197,7 @@ export interface ResolvePayoutRecipientsResult {
 export interface PayoutListQuery {
   page?: number;
   limit?: number;
-  paymentType?: "Instant" | "Scheduled" | "Escrow";
+  paymentType?: PayoutTypeValue;
   isCommitment?: boolean;
   status?: string;
 }
@@ -204,26 +220,40 @@ export interface PayoutFinalizeOptions {
 
 export interface PayoutMessageSignature {
   signature: string | Uint8Array;
-  signatureType?: "evm-personal-sign" | "solana-message" | string;
+  signatureType?: 'evm-personal-sign' | 'solana-message' | string;
   signerAddress?: string;
 }
 
 export interface PayoutProviderSigner {
-  chain?: "ethereum" | "solana" | string;
+  chain?: 'ethereum' | 'solana' | string;
   address?: string;
   getAddress?: () => Promise<string> | string;
   signMessage?: (
     message: string | Uint8Array,
-  ) => Promise<string | Uint8Array | PayoutMessageSignature> | string | Uint8Array | PayoutMessageSignature;
+  ) =>
+    | Promise<string | Uint8Array | PayoutMessageSignature>
+    | string
+    | Uint8Array
+    | PayoutMessageSignature;
   signFinalize?: (
     message: string | Uint8Array,
-  ) => Promise<string | Uint8Array | PayoutMessageSignature> | string | Uint8Array | PayoutMessageSignature;
+  ) =>
+    | Promise<string | Uint8Array | PayoutMessageSignature>
+    | string
+    | Uint8Array
+    | PayoutMessageSignature;
   signFunding?: (
     digest: HexString,
-  ) => Promise<string | PayoutMessageSignature> | string | PayoutMessageSignature;
+  ) =>
+    | Promise<string | PayoutMessageSignature>
+    | string
+    | PayoutMessageSignature;
   signDigest?: (
     digest: HexString,
-  ) => Promise<string | PayoutMessageSignature> | string | PayoutMessageSignature;
+  ) =>
+    | Promise<string | PayoutMessageSignature>
+    | string
+    | PayoutMessageSignature;
   request?: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
   signerAddress?: string;
 }
@@ -239,7 +269,7 @@ export type PayoutMessageSigner = (
 export type PayoutSignerInput =
   | string
   | {
-      chain: "ethereum";
+      chain: 'ethereum';
       privateKey: string;
     }
   | PayoutProviderSigner
@@ -306,7 +336,7 @@ export type PayoutReference = string | PayoutRecord | PayoutIntent;
 export interface PayoutRecord {
   id: string;
   chain: string;
-  paymentType: "Instant" | "Scheduled" | "Escrow";
+  paymentType: PayoutTypeValue;
   escrowBatch?: string;
   complianceMode?: PayoutComplianceMode;
   isCommitment?: boolean;
@@ -357,7 +387,7 @@ export class PayoutIntent implements PayoutRecord {
 
   id!: string;
   chain!: string;
-  paymentType!: "Instant" | "Scheduled" | "Escrow";
+  paymentType!: PayoutTypeValue;
   escrowBatch?: string;
   complianceMode?: PayoutComplianceMode;
   isCommitment?: boolean;
@@ -378,11 +408,7 @@ export class PayoutIntent implements PayoutRecord {
     [key: string]: unknown;
   } | null;
 
-  constructor(
-    service: PviumPayoutService,
-    meta: ApiMeta,
-    data: PayoutRecord,
-  ) {
+  constructor(service: PviumPayoutService, meta: ApiMeta, data: PayoutRecord) {
     Object.assign(this, data);
     Object.defineProperty(this, 'service', {
       value: service,
@@ -471,11 +497,15 @@ export class PayoutIntent implements PayoutRecord {
     return this.service.revokeInviteRoot(this.id, inviteRootId, options);
   }
 
-  async delete(options?: RequestOptions): Promise<PayoutApiResponse<undefined>> {
+  async delete(
+    options?: RequestOptions,
+  ): Promise<PayoutApiResponse<undefined>> {
     return this.service.delete(this.id, options);
   }
 
-  async listInvites(options?: RequestOptions): Promise<PayoutApiResponse<unknown[]>> {
+  async listInvites(
+    options?: RequestOptions,
+  ): Promise<PayoutApiResponse<unknown[]>> {
     return this.service.listInvites(this.id, options);
   }
 
@@ -531,14 +561,14 @@ const ZERO_HEX = /^0x[0-9a-fA-F]*$/;
 export function createPayoutNonce(): HexString {
   const cryptoImpl = globalThis.crypto;
   if (!cryptoImpl?.getRandomValues) {
-    throw new Error("Secure random number generation is unavailable");
+    throw new Error('Secure random number generation is unavailable');
   }
 
   const bytes = new Uint8Array(16);
   cryptoImpl.getRandomValues(bytes);
   return `0x${Array.from(bytes, (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("")}`;
+    byte.toString(16).padStart(2, '0'),
+  ).join('')}`;
 }
 
 function createPayoutId(): string {
@@ -547,7 +577,7 @@ function createPayoutId(): string {
     return cryptoImpl.randomUUID();
   }
   if (!cryptoImpl?.getRandomValues) {
-    throw new Error("Secure random UUID generation is unavailable");
+    throw new Error('Secure random UUID generation is unavailable');
   }
 
   const bytes = new Uint8Array(16);
@@ -555,8 +585,8 @@ function createPayoutId(): string {
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex = Array.from(bytes, (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+    byte.toString(16).padStart(2, '0'),
+  ).join('');
 
   return [
     hex.slice(0, 8),
@@ -564,42 +594,38 @@ function createPayoutId(): string {
     hex.slice(12, 16),
     hex.slice(16, 20),
     hex.slice(20),
-  ].join("-");
+  ].join('-');
 }
 
-function mapPayoutType(type: PayoutType | undefined): {
-  paymentType: "Instant" | "Scheduled" | "Escrow";
+function mapPayoutType(type: PayoutTypeInput | undefined): {
+  paymentType: PayoutType;
   isCommitment: boolean;
 } {
-  if (type === "Milestone") {
-    return { paymentType: "Scheduled", isCommitment: true };
+  if (type === 'Milestone') {
+    return { paymentType: PayoutType.Scheduled, isCommitment: true };
   }
 
-  if (type === "Escrow") {
-    return { paymentType: "Escrow", isCommitment: false };
+  if (IsPoolPayoutType(type)) {
+    return { paymentType: PayoutType.Pool, isCommitment: false };
   }
 
-  if (type === "Scheduled") {
-    return { paymentType: "Scheduled", isCommitment: false };
-  }
-
-  return { paymentType: "Instant", isCommitment: false };
+  return { paymentType: type as PayoutType, isCommitment: false };
 }
 
 function normalizeHexAddress(value: string): `0x${string}` {
-  return (value.toLowerCase().startsWith("0x")
-    ? value
-    : `0x${value}`) as `0x${string}`;
+  return (
+    value.toLowerCase().startsWith('0x') ? value : `0x${value}`
+  ) as `0x${string}`;
 }
 
 function normalizeInstantNonce(nonce: string): `0x${string}` {
   const trimmed = nonce.trim();
 
   if (!trimmed) {
-    throw new Error("Payout nonce is required");
+    throw new Error('Payout nonce is required');
   }
 
-  const hexBody = trimmed.startsWith("0x") ? trimmed.slice(2) : trimmed;
+  const hexBody = trimmed.startsWith('0x') ? trimmed.slice(2) : trimmed;
   if (!ZERO_HEX.test(`0x${hexBody}`)) {
     throw new Error(`Payout nonce must be hex-compatible: ${nonce}`);
   }
@@ -613,24 +639,24 @@ export function generateInstantPayoutHash(
 ): HexString {
   const payouts = payments.map((payment) => {
     if (payment.decimals === undefined) {
-      throw new Error("Payment decimals are required to hash instant payouts");
+      throw new Error('Payment decimals are required to hash instant payouts');
     }
     if (!payment.token) {
-      throw new Error("Payment token is required to hash instant payouts");
+      throw new Error('Payment token is required to hash instant payouts');
     }
 
     return {
       receiver: normalizeHexAddress(payment.receiver),
       amount: parseUnits(payment.amount.toString(), payment.decimals),
       token: normalizeHexAddress(payment.token),
-      memo: payment.memo || "",
+      memo: payment.memo || '',
     };
   });
 
   const encoded = AbiCoder.defaultAbiCoder().encode(
     [
-      "bytes",
-      "tuple(address receiver, uint256 amount, address token, string memo)[]",
+      'bytes',
+      'tuple(address receiver, uint256 amount, address token, string memo)[]',
     ],
     [normalizeInstantNonce(nonce), payouts],
   );
@@ -639,8 +665,8 @@ export function generateInstantPayoutHash(
 }
 
 function getPayoutIdBytes32(payoutId: string): HexString {
-  const payoutIdHex = payoutId.replace(/-/g, "");
-  return `0x${payoutIdHex.padEnd(64, "0")}` as HexString;
+  const payoutIdHex = payoutId.replace(/-/g, '');
+  return `0x${payoutIdHex.padEnd(64, '0')}` as HexString;
 }
 
 function normalizeBytes32Id(value: string, context: string): HexString {
@@ -740,7 +766,7 @@ export function computeScheduledPayoutHash(params: {
 
   return keccak256(
     AbiCoder.defaultAbiCoder().encode(
-      ["bytes32", "address", "uint256", "uint256", "uint256", "uint256"],
+      ['bytes32', 'address', 'uint256', 'uint256', 'uint256', 'uint256'],
       [
         payoutIdBytes32,
         params.fundingToken,
@@ -763,7 +789,7 @@ export function computeEscrowPayoutHash(params: {
   const externalBatchId = getPayoutIdBytes32(params.payoutId);
   return keccak256(
     AbiCoder.defaultAbiCoder().encode(
-      ["bytes32", "address", "uint256", "uint256", "uint256"],
+      ['bytes32', 'address', 'uint256', 'uint256', 'uint256'],
       [
         externalBatchId,
         getAddress(params.fundingToken),
@@ -781,7 +807,7 @@ export function computeEscrowFundingDigest(params: {
 }): HexString {
   return keccak256(
     solidityPacked(
-      ["bytes32", "address"],
+      ['bytes32', 'address'],
       [params.escrowBatchHash, getAddress(params.withdrawalWallet)],
     ),
   ) as HexString;
@@ -793,7 +819,7 @@ export function computeEscrowScheduledFundingDigest(params: {
 }): HexString {
   return keccak256(
     solidityPacked(
-      ["bytes32", "bytes32"],
+      ['bytes32', 'bytes32'],
       [params.escrowBatchHash, params.merkleRoot],
     ),
   ) as HexString;
@@ -801,7 +827,7 @@ export function computeEscrowScheduledFundingDigest(params: {
 
 function generateLeafHash(batchHash: string, entry: PaymentEntry): Buffer {
   const encoded = solidityPacked(
-    ["bytes32", "address", "uint256", "uint256", "string"],
+    ['bytes32', 'address', 'uint256', 'uint256', 'string'],
     [
       batchHash,
       entry.receiverAddress,
@@ -819,11 +845,11 @@ function hashMerkleNode(value: Buffer): Buffer {
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
-  if (typeof Buffer !== "undefined") {
-    return Buffer.from(bytes).toString("base64");
+  if (typeof Buffer !== 'undefined') {
+    return Buffer.from(bytes).toString('base64');
   }
 
-  let binary = "";
+  let binary = '';
   bytes.forEach((byte) => {
     binary += String.fromCharCode(byte);
   });
@@ -833,7 +859,7 @@ function bytesToBase64(bytes: Uint8Array): string {
 function normalizePayoutSignature(
   result: string | Uint8Array | PayoutMessageSignature,
 ): string {
-  if (typeof result === "string") return result;
+  if (typeof result === 'string') return result;
   if (result instanceof Uint8Array) return bytesToBase64(result);
   return result.signature instanceof Uint8Array
     ? bytesToBase64(result.signature)
@@ -843,7 +869,7 @@ function normalizePayoutSignature(
 function normalizePayoutSignatureResult(
   result: string | Uint8Array | PayoutMessageSignature,
 ): PayoutSignatureResult {
-  if (typeof result === "string") {
+  if (typeof result === 'string') {
     return { signature: result };
   }
   if (result instanceof Uint8Array) {
@@ -864,32 +890,37 @@ function generateMerkleTreeForPayout(
   defaultClaimDate?: number,
 ): { merkleRoot: HexString; proofs: MerkleProofData[] } {
   if (payments.length === 0) {
-    throw new Error("Cannot finalize scheduled payouts without payments");
+    throw new Error('Cannot finalize scheduled payouts without payments');
   }
 
   const entries: PaymentEntry[] = payments.map((payment) => {
     if (payment.decimals === undefined) {
-      throw new Error("Payment decimals are required to hash scheduled payouts");
+      throw new Error(
+        'Payment decimals are required to hash scheduled payouts',
+      );
     }
 
     return {
       receiverAddress: payment.receiver.toLowerCase(),
-      amount: parseUnits(payment.amount.toString(), payment.decimals).toString(),
+      amount: parseUnits(
+        payment.amount.toString(),
+        payment.decimals,
+      ).toString(),
       claimableDate: payment.claimDate || defaultClaimDate || 0,
-      memo: payment.memo || "",
+      memo: payment.memo || '',
     };
   });
 
   const leaves = entries.map((entry) => generateLeafHash(batchHash, entry));
   const tree = new MerkleTree(leaves, hashMerkleNode, { sortPairs: true });
-  const merkleRoot = `0x${tree.getRoot().toString("hex")}` as HexString;
+  const merkleRoot = `0x${tree.getRoot().toString('hex')}` as HexString;
 
   const proofs = entries.map((entry) => {
     const leaf = generateLeafHash(batchHash, entry);
     return {
       receiver: entry.receiverAddress,
       proof: tree.getHexProof(leaf),
-      leaf: `0x${leaf.toString("hex")}`,
+      leaf: `0x${leaf.toString('hex')}`,
     };
   });
 
@@ -900,12 +931,12 @@ async function resolveSignerAddress(
   signer: PayoutSignerInput,
   fallback?: string,
 ): Promise<string | undefined> {
-  if (typeof signer === "string" || "privateKey" in signer) {
-    const privateKey = typeof signer === "string" ? signer : signer.privateKey;
+  if (typeof signer === 'string' || 'privateKey' in signer) {
+    const privateKey = typeof signer === 'string' ? signer : signer.privateKey;
     return new Wallet(privateKey).address.toLowerCase();
   }
 
-  if (typeof signer === "function") {
+  if (typeof signer === 'function') {
     return fallback?.toLowerCase();
   }
 
@@ -922,8 +953,8 @@ async function signPayoutFinalizeMessage(
   message: string,
   chain?: string,
 ): Promise<PayoutSignatureResult> {
-  if (typeof signer === "string" || "privateKey" in signer) {
-    const privateKey = typeof signer === "string" ? signer : signer.privateKey;
+  if (typeof signer === 'string' || 'privateKey' in signer) {
+    const privateKey = typeof signer === 'string' ? signer : signer.privateKey;
     const wallet = new Wallet(privateKey);
     return {
       signature: await wallet.signMessage(message),
@@ -931,16 +962,20 @@ async function signPayoutFinalizeMessage(
     };
   }
 
-  if (typeof signer === "function") {
+  if (typeof signer === 'function') {
     return normalizePayoutSignatureResult(await signer(message));
   }
 
   const sign = signer.signFinalize ?? signer.signMessage;
   if (!sign) {
-    throw new Error("Signer must provide signMessage(message) or signFinalize(message)");
+    throw new Error(
+      'Signer must provide signMessage(message) or signFinalize(message)',
+    );
   }
 
-  const isSolana = (chain || signer.chain || "").toLowerCase().includes("solana");
+  const isSolana = (chain || signer.chain || '')
+    .toLowerCase()
+    .includes('solana');
   const payload = isSolana ? new TextEncoder().encode(message) : message;
   return normalizePayoutSignatureResult(await sign(payload));
 }
@@ -962,12 +997,12 @@ async function signFundingDigest(
   signer: PayoutSignerInput,
   digest: HexString,
 ): Promise<string> {
-  if (typeof signer === "string" || "privateKey" in signer) {
-    const privateKey = typeof signer === "string" ? signer : signer.privateKey;
+  if (typeof signer === 'string' || 'privateKey' in signer) {
+    const privateKey = typeof signer === 'string' ? signer : signer.privateKey;
     return new Wallet(privateKey).signingKey.sign(digest).serialized;
   }
 
-  if (typeof signer === "function") {
+  if (typeof signer === 'function') {
     throw new Error(
       "EVM payout finalization requires signFunding(digest), signDigest(digest), provider.request({ method: 'secp256k1_sign' }), or a private key for the funding signature",
     );
@@ -980,7 +1015,7 @@ async function signFundingDigest(
 
   if (signer.request) {
     const result = await signer.request({
-      method: "secp256k1_sign",
+      method: 'secp256k1_sign',
       params: [digest],
     });
     return String(result);
@@ -1037,7 +1072,7 @@ async function signSigningKeyAuthorizationDigest(
 
 function getPayoutPayments(payout: PayoutRecord): PayoutPayment[] {
   if (!Array.isArray(payout.payments)) {
-    throw new Error("Payout response does not include payments");
+    throw new Error('Payout response does not include payments');
   }
 
   return payout.payments;
@@ -1046,18 +1081,18 @@ function getPayoutPayments(payout: PayoutRecord): PayoutPayment[] {
 function resolveClientId(payout: PayoutRecord, fallback?: string): string {
   const clientId = fallback || payout.app?.clientId;
   if (!clientId) {
-    throw new Error("clientId is required to finalize this payout");
+    throw new Error('clientId is required to finalize this payout');
   }
 
   return clientId;
 }
 
 function normalizeTokenAddress(value: unknown): string | undefined {
-  if (typeof value === "string") {
-    return value.startsWith("0x") ? getAddress(value) : undefined;
+  if (typeof value === 'string') {
+    return value.startsWith('0x') ? getAddress(value) : undefined;
   }
 
-  if (value && typeof value === "object") {
+  if (value && typeof value === 'object') {
     const record = value as Record<string, unknown>;
     return (
       normalizeTokenAddress(record.contractAddress) ||
@@ -1158,7 +1193,10 @@ const CHAIN_ALIASES: Record<string, keyof typeof STABLECOIN_TOKEN_ADDRESSES> = {
   localhost: 'localhost',
 };
 
-const PAYOUT_CHAIN_IDS: Record<keyof typeof STABLECOIN_TOKEN_ADDRESSES, number> = {
+const PAYOUT_CHAIN_IDS: Record<
+  keyof typeof STABLECOIN_TOKEN_ADDRESSES,
+  number
+> = {
   base: 8453,
   bsc: 56,
   solana: 101,
@@ -1167,9 +1205,7 @@ const PAYOUT_CHAIN_IDS: Record<keyof typeof STABLECOIN_TOKEN_ADDRESSES, number> 
   localhost: 31337,
 };
 
-function normalizePayoutCurrency(
-  value?: string,
-): PayoutCurrency | undefined {
+function normalizePayoutCurrency(value?: string): PayoutCurrency | undefined {
   if (!value) return undefined;
   const normalized = value.toLowerCase();
   if (normalized === 'usdc') return PayoutCurrency.USDC;
@@ -1303,7 +1339,9 @@ function buildPayoutMetadata(
   );
 
   if (payoutCurrencyConfig) {
-    metadata.payoutCurrency = payoutCurrencyConfig.contractAddress.startsWith('0x')
+    metadata.payoutCurrency = payoutCurrencyConfig.contractAddress.startsWith(
+      '0x',
+    )
       ? getAddress(payoutCurrencyConfig.contractAddress)
       : payoutCurrencyConfig.contractAddress;
     metadata.payoutCurrencyDecimals = payoutCurrencyConfig.decimals;
@@ -1314,14 +1352,16 @@ function buildPayoutMetadata(
   if (input.lockDuration && metadata.lockDuration == null) {
     metadata.lockDuration = input.lockDuration;
   }
-  if (input.type === "Milestone") {
-    metadata.commitmentType = "milestone";
+  if (input.type === 'Milestone') {
+    metadata.commitmentType = 'milestone';
   }
 
   return metadata;
 }
 
-function resolvePayoutFundingTokenCandidate(payout?: PayoutRecord): string | undefined {
+function resolvePayoutFundingTokenCandidate(
+  payout?: PayoutRecord,
+): string | undefined {
   if (!payout) return undefined;
 
   return (
@@ -1340,7 +1380,7 @@ function resolveFundingToken(
   options: PayoutFinalizeOptions,
 ): string {
   const linkedEscrow =
-    typeof options.escrowBatch === "object" ? options.escrowBatch : undefined;
+    typeof options.escrowBatch === 'object' ? options.escrowBatch : undefined;
   const token =
     normalizeTokenAddress(options.fundingToken) ||
     resolvePayoutFundingTokenCandidate(payout) ||
@@ -1348,7 +1388,7 @@ function resolveFundingToken(
 
   if (!token) {
     throw new Error(
-      "fundingToken must be provided as an address to finalize scheduled payouts",
+      'fundingToken must be provided as an address to finalize scheduled payouts',
     );
   }
 
@@ -1375,31 +1415,34 @@ function normalizePaymentsForCreate(
       normalizedPaymentToken !== normalizedExpectedToken
     ) {
       throw new Error(
-        "Payment token must match payoutCurrency when payoutCurrency is provided",
+        'Payment token must match payoutCurrency when payoutCurrency is provided',
       );
     }
 
     return {
       ...rest,
       token: resolved.token,
-      decimals: payment.decimals ?? resolved.currency?.decimals ?? decimalsFallback,
+      decimals:
+        payment.decimals ?? resolved.currency?.decimals ?? decimalsFallback,
       amount:
-        typeof payment.amount === "string"
+        typeof payment.amount === 'string'
           ? Number(payment.amount)
           : payment.amount,
     };
   });
 }
 
-function resolvePayoutId(reference?: string | PayoutRecord): string | undefined {
+function resolvePayoutId(
+  reference?: string | PayoutRecord,
+): string | undefined {
   if (!reference) return undefined;
-  return typeof reference === "string" ? reference : reference.id;
+  return typeof reference === 'string' ? reference : reference.id;
 }
 
 function assertPayoutChain(chain: string): PayoutChain {
-  const chainKey = CHAIN_ALIASES[
-    chain.toLowerCase().replace(/\s+/g, '')
-  ] as PayoutChain | undefined;
+  const chainKey = CHAIN_ALIASES[chain.toLowerCase().replace(/\s+/g, '')] as
+    | PayoutChain
+    | undefined;
   if (!chainKey) {
     throw new Error(`Unsupported payout chain ${chain}`);
   }
@@ -1428,14 +1471,15 @@ function normalizePaymentsForSigning(
   chain: string,
   tokenFallback?: string,
 ): PayoutPayment[] {
-  const tokenDecimals = resolvePayoutCurrencyByToken(chain, tokenFallback)?.decimals;
+  const tokenDecimals = resolvePayoutCurrencyByToken(
+    chain,
+    tokenFallback,
+  )?.decimals;
   return payments.map((payment) => {
     const { tokenSymbol: _tokenSymbol, ...rest } = payment;
     const resolved = resolvePaymentToken(chain, payment, tokenFallback);
     const decimals =
-      payment.decimals ??
-      resolved.currency?.decimals ??
-      tokenDecimals;
+      payment.decimals ?? resolved.currency?.decimals ?? tokenDecimals;
 
     return {
       ...rest,
@@ -1663,10 +1707,7 @@ export class PviumPayoutService {
     return this.parse<PayoutApiResponse<PayoutRecord[]>>(response);
   }
 
-  async get(
-    payoutId: string,
-    options?: RequestOptions,
-  ): Promise<PayoutIntent> {
+  async get(payoutId: string, options?: RequestOptions): Promise<PayoutIntent> {
     const response = await this.http.request({
       method: 'GET',
       path: `/v1/batch-payments/${encodeURIComponent(payoutId)}`,
@@ -1689,11 +1730,11 @@ export class PviumPayoutService {
         ? input.requestOptions
         : options;
 
-    if (typeof payout !== 'string' && payout.paymentType === 'Escrow') {
+    if (typeof payout !== 'string' && IsPoolPayoutType(payout.paymentType)) {
       const signer = Array.isArray(input) ? undefined : input.signer;
       if (!signer) {
         throw new Error(
-          'A signer or private key is required to add payments to escrow payouts',
+          'A signer or private key is required to add payments to pool payouts',
         );
       }
 
@@ -1741,14 +1782,14 @@ export class PviumPayoutService {
         ? (await this.get(escrowBatch, requestOptions)).data
         : escrowBatch;
 
-    if (escrowPayout.paymentType !== 'Escrow') {
-      throw new Error('addEscrowPayees requires an escrow payout');
+    if (!IsPoolPayoutType(escrowPayout.paymentType)) {
+      throw new Error('addEscrowPayees requires a pool payout');
     }
     if (!escrowPayout.batchHash) {
-      throw new Error('Escrow payout must be finalized before adding payees');
+      throw new Error('Payout pool must be finalized before adding payees');
     }
     if (escrowPayout.status && escrowPayout.status !== 'funded') {
-      throw new Error('Escrow payout must be funded before adding payees');
+      throw new Error('Payout pool must be funded before adding payees');
     }
     if (!payments.length) {
       throw new Error('At least one payee is required');
@@ -1767,11 +1808,11 @@ export class PviumPayoutService {
     return this.createFinalized(
       {
         id: options.id || createPayoutId(),
-        type: 'Scheduled',
+        type: PayoutType.Scheduled,
         chain: assertPayoutChain(options.chain || escrowPayout.chain),
         name:
           options.name ||
-          `${String(escrowPayout.name || 'Escrow payout')} Payees`,
+          `${String(escrowPayout.name || 'Payout Pool')} Payees`,
         description: options.description,
         complianceMode:
           options.complianceMode || escrowPayout.complianceMode || 'Open',
@@ -2057,7 +2098,7 @@ export class PviumPayoutService {
 
         if (!escrowPayout.batchHash) {
           throw new Error(
-            'Linked escrow payout must be finalized before finalizing scheduled payouts',
+            'Linked payout pool must be finalized before finalizing scheduled payouts',
           );
         }
 
@@ -2195,7 +2236,7 @@ export class PviumPayoutService {
 
           if (!escrowPayout.batchHash) {
             throw new Error(
-              'Linked escrow payout must be finalized before finalizing scheduled payouts',
+              'Linked payout pool must be finalized before finalizing scheduled payouts',
             );
           }
 
@@ -2210,16 +2251,16 @@ export class PviumPayoutService {
           fundingDigest,
         );
       }
-    } else if (payout.paymentType === 'Escrow') {
+    } else if (IsPoolPayoutType(payout.paymentType)) {
       const chainId = resolvePayoutChainId(
         chain,
         options.chainId,
-        'escrow payout finalization',
+        'pool payout finalization',
       );
 
       const nonce = payout.nonce || options.timestamp?.toString();
       if (!nonce) {
-        throw new Error('Payout nonce is required to finalize escrow payouts');
+        throw new Error('Payout nonce is required to finalize pool payouts');
       }
 
       const fundingToken = resolveFundingToken(payout, options);
@@ -2235,7 +2276,7 @@ export class PviumPayoutService {
           0,
       );
       if (!Number.isFinite(lockDuration) || lockDuration <= 0) {
-        throw new Error('lockDuration is required to finalize escrow payouts');
+        throw new Error('lockDuration is required to finalize pool payouts');
       }
 
       batchDataHash = generateInstantPayoutHash(payments, nonce);
@@ -2243,7 +2284,7 @@ export class PviumPayoutService {
       const signature = await signPayoutFinalizeMessage(signer, message, chain);
       signerAddress = requireSignerAddress(
         signerAddress || signature.signerAddress,
-        'Escrow payout finalization',
+        'Payout pool finalization',
       );
 
       const escrowBatchHash = computeEscrowPayoutHash({
@@ -2318,7 +2359,9 @@ export class PviumPayoutService {
     });
   }
 
-  private wrapPayoutResponse(response: PayoutApiResponse<PayoutRecord>): PayoutIntent {
+  private wrapPayoutResponse(
+    response: PayoutApiResponse<PayoutRecord>,
+  ): PayoutIntent {
     return new PayoutIntent(this, response.meta, response.data);
   }
 

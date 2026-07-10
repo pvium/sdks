@@ -638,7 +638,7 @@ func TestPayoutAddPaymentsCreatesSignedEscrowChildScheduledPayout(t *testing.T) 
 	escrowBatch := models.PayoutRecord{
 		ID:             "7a6ca76d-77f7-4c0e-9da9-c64f1cb18a1f",
 		Chain:          "base",
-		PaymentType:    models.PayoutTypeEscrow,
+		PaymentType:    models.PayoutTypePool,
 		Status:         "funded",
 		ComplianceMode: models.PayoutComplianceOpen,
 		Name:           "Creator escrow",
@@ -730,6 +730,24 @@ func TestPayoutAddPaymentsRejectsEscrowWithoutSigner(t *testing.T) {
 	}}, nil)
 	if err == nil || !strings.Contains(err.Error(), "signer or private key is required") {
 		t.Fatalf("expected signer error, got %v", err)
+	}
+}
+
+func TestBuildCreatePayoutBodyNormalizesEscrowToPool(t *testing.T) {
+	t.Parallel()
+
+	lockDuration := int64(604800)
+	body, err := buildCreatePayoutBody(models.CreatePayoutInput{
+		Type:           models.PayoutTypeEscrow,
+		Chain:          "base",
+		LockDuration:   &lockDuration,
+		PayoutCurrency: string(models.PayoutCurrencyUSDC),
+	})
+	if err != nil {
+		t.Fatalf("build create payout body: %v", err)
+	}
+	if body["paymentType"] != models.PayoutTypePool {
+		t.Fatalf("expected legacy escrow input to emit Pool paymentType, got %+v", body)
 	}
 }
 

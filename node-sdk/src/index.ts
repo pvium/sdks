@@ -96,9 +96,11 @@ export {
   computeScheduledPayoutHash,
   createPayoutNonce,
   generateInstantPayoutHash,
+  IsPoolPayoutType,
   PayoutFinalization,
   PayoutIntent,
   PayoutCurrency,
+  PayoutType,
   PviumPayoutService,
 } from "./payout";
 export type {
@@ -144,7 +146,8 @@ export type {
   PayoutSigningKeySignatureResult,
   PayoutSigningKeySignerInput,
   PayoutSignerInput,
-  PayoutType,
+  PayoutTypeInput,
+  PayoutTypeValue,
   RemovePayoutPaymentsInput,
   ResolvePayoutRecipient,
   ResolvePayoutRecipientsInput,

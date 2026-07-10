@@ -15,6 +15,7 @@ const {
   PayoutCurrency,
   PayoutFinalization,
   PayoutIntent,
+  IsPoolPayoutType,
   computeScheduledPayoutHash,
   computeSigningKeyAuthorizationHash,
   createPayoutNonce,
@@ -43,6 +44,12 @@ test("PviumSdk.init exposes payout service", () => {
   assert.equal(typeof sdk.payout.delete, "function");
   assert.equal(typeof sdk.payout.listInvites, "function");
   assert.equal(typeof sdk.payout.listPayments, "function");
+});
+
+test("IsPoolPayoutType treats Pool and Escrow as pool payouts", () => {
+  assert.equal(IsPoolPayoutType("Pool"), true);
+  assert.equal(IsPoolPayoutType("Escrow"), true);
+  assert.equal(IsPoolPayoutType("Instant"), false);
 });
 
 test("createPayoutNonce generates a 16-byte hex nonce", () => {
@@ -202,6 +209,40 @@ test("payout.create returns a payout intent with envelope compatibility", async 
   assert.equal(finalized.data.payout.id, "batch_1");
   assert.equal(finalized.meta.success, true);
   assert.equal(requests[1].init.method, "PATCH");
+});
+
+test("payout.create normalizes Pool and Escrow create inputs to Pool", async () => {
+  const requests = [];
+  const sdk = PviumSdk.init({
+    baseUrl: "http://localhost:4005/v1",
+    fetchFn: async (url, init) => {
+      requests.push({ url, init });
+      return new Response(
+        JSON.stringify({
+          meta: { statusCode: 201, success: true },
+          data: { id: "batch_pool", chain: "base", paymentType: "Pool" },
+        }),
+        {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    },
+  });
+
+  await sdk.payout.create({
+    type: "Pool",
+    chain: "base",
+    payoutCurrency: PayoutCurrency.USDC,
+  });
+  await sdk.payout.create({
+    type: "Escrow",
+    chain: "base",
+    payoutCurrency: PayoutCurrency.USDC,
+  });
+
+  assert.equal(JSON.parse(requests[0].init.body).paymentType, "Pool");
+  assert.equal(JSON.parse(requests[1].init.body).paymentType, "Pool");
 });
 
 test("payout intent addPayments proxies through the payout service", async () => {
@@ -961,6 +1002,36 @@ test("payout.addPayments rejects escrow payouts without a signer", async () => {
           id: "7a6ca76d-77f7-4c0e-9da9-c64f1cb18a1f",
           chain: "base",
           paymentType: "Escrow",
+          status: "funded",
+          batchHash:
+            "0x1111111111111111111111111111111111111111111111111111111111111111",
+          metadata: {
+            payoutCurrency: "0x0000000000000000000000000000000000000002",
+          },
+          app: { clientId: "app_test" },
+        },
+        [
+          {
+            receiver: "0x0000000000000000000000000000000000000001",
+            amount: "25",
+            decimals: 6,
+          },
+        ],
+      ),
+    /signer or private key is required/,
+  );
+});
+
+test("payout.addPayments routes Pool payouts through the pool payee flow", async () => {
+  const { sdk } = createMockSdk();
+
+  await assert.rejects(
+    () =>
+      sdk.payout.addPayments(
+        {
+          id: "7a6ca76d-77f7-4c0e-9da9-c64f1cb18a1f",
+          chain: "base",
+          paymentType: "Pool",
           status: "funded",
           batchHash:
             "0x1111111111111111111111111111111111111111111111111111111111111111",

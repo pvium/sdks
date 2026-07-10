@@ -26,6 +26,11 @@ This checklist tracks parity between the TypeScript SDK and the other SDKs.
   - require at least one identity
   - require non-empty `batchInvite.batchId` when batch invites are used
   - require configured `clientId` for invite methods
+- Payout Pool compatibility:
+  - `Pool` is accepted as the new alias for legacy `Escrow`
+  - TypeScript exports `IsPoolPayoutType`; Python exports `isPoolPayoutType`
+  - create flows normalize `Escrow`/`Pool` inputs to `Pool`
+  - add-payee and finalize paths treat existing `Escrow` records and new `Pool` records the same
 
 ## Remaining high-impact gaps
 

@@ -37,6 +37,7 @@ from .payout import (
     computeScheduledPayoutHash,
     createPayoutNonce,
     generateInstantPayoutHash,
+    isPoolPayoutType,
 )
 from .sdk import PviumSdk
 from .signing import (
@@ -115,6 +116,7 @@ __all__ = [
     "verifyBatchInviteProofV2",
     "createPayoutNonce",
     "generateInstantPayoutHash",
+    "isPoolPayoutType",
     "computeScheduledPayoutHash",
     "computeEscrowPayoutHash",
     "computeEscrowFundingDigest",

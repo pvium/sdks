@@ -78,6 +78,7 @@ const (
 	PayoutTypeInstant   = models.PayoutTypeInstant
 	PayoutTypeScheduled = models.PayoutTypeScheduled
 	PayoutTypeEscrow    = models.PayoutTypeEscrow
+	PayoutTypePool      = models.PayoutTypePool
 	PayoutTypeMilestone = models.PayoutTypeMilestone
 )
 
