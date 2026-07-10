@@ -17,10 +17,10 @@ npm install @pvium/sdk
 ## Quick Start
 
 ```ts
-import { PviumSdk } from "@pvium/sdk";
+import { PviumSdk } from '@pvium/sdk';
 
 const pvium = PviumSdk.init({
-  environment: "sandbox",
+  environment: 'sandbox',
   apiKey: process.env.PVIUM_API_KEY as string,
 });
 
@@ -85,13 +85,13 @@ invite links include the registered callback URL:
 ```ts
 const signed = await pvium.invites.createSignedBundle(
   {
-    identities: [{ type: "github", value: "octocat" }],
-    scopes: ["read:user", "read:github", "write:invoice"],
-    redirectUri: "https://example.com/api/pvium/oauth/callback",
-    chain: "ethereum",
+    identities: [{ type: 'github', value: 'octocat' }],
+    scopes: ['read:user', 'read:github', 'write:invoice'],
+    redirectUri: 'https://example.com/api/pvium/oauth/callback',
+    chain: 'ethereum',
   },
   {
-    chain: "ethereum",
+    chain: 'ethereum',
     privateKey: process.env.PVIUM_INVITE_SIGNER_PRIVATE_KEY as string,
   },
 );
@@ -102,7 +102,7 @@ Exchange the returned OAuth code on your server:
 ```ts
 const tokens = await pvium.oauth.exchangeCodeForToken({
   code,
-  redirectUri: "https://example.com/api/pvium/oauth/callback",
+  redirectUri: 'https://example.com/api/pvium/oauth/callback',
 });
 
 const invoice = await pvium.endpoints.createInvoice(invoiceBody, {
@@ -141,7 +141,13 @@ Pvium webhooks are delivered as a JSON `POST` to the `webhookUrl` configured on
 your client app. The request body has the shape:
 
 ```json
-{ "event": "<event-name>", "token": "<signed-jwt>", "data": { /* optional */ } }
+{
+  "event": "<event-name>",
+  "token": "<signed-jwt>",
+  "data": {
+    /* optional */
+  }
+}
 ```
 
 The `token` is an HS256-signed JWT whose payload is
@@ -157,7 +163,7 @@ token's `event` matches the outer body's `event`/`type`, and returns the
 unwrapped payload.
 
 ```ts
-import { resolvePviumWebhookPayload } from "@pvium/sdk";
+import { resolvePviumWebhookPayload } from '@pvium/sdk';
 
 const body = await request.json();
 const webhook = resolvePviumWebhookPayload(
@@ -165,7 +171,7 @@ const webhook = resolvePviumWebhookPayload(
   process.env.PVIUM_WEBHOOK_SECRET as string,
 );
 
-if (webhook.event === "oauth.invite.accepted") {
+if (webhook.event === 'oauth.invite.accepted') {
   const data = webhook.data; // verified, typed via generic
 }
 ```
@@ -180,15 +186,15 @@ Use this when you already have the raw token (e.g. you store the entire JWT for
 audit, or you receive the token from somewhere other than a webhook POST).
 
 ```ts
-import { verifyPviumWebhookToken } from "@pvium/sdk";
+import { verifyPviumWebhookToken } from '@pvium/sdk';
 
 const payload = verifyPviumWebhookToken<{ appId: string }>(
   token,
   process.env.PVIUM_WEBHOOK_SECRET as string,
   {
-    expectedEvent: "oauth.invite.accepted", // optional; throws on mismatch
-    now: Date.now(),                         // optional; for testing/clock skew
-    allowHashedSecretFallback: true,         // optional; default true
+    expectedEvent: 'oauth.invite.accepted', // optional; throws on mismatch
+    now: Date.now(), // optional; for testing/clock skew
+    allowHashedSecretFallback: true, // optional; default true
   },
 );
 
@@ -206,7 +212,13 @@ function verifyPviumWebhookToken<TData = Record<string, unknown>>(
     now?: Date | number;
     allowHashedSecretFallback?: boolean;
   },
-): { event?: string; data?: TData; iat?: number; exp?: number; [k: string]: unknown };
+): {
+  event?: string;
+  data?: TData;
+  iat?: number;
+  exp?: number;
+  [k: string]: unknown;
+};
 ```
 
 Throws when the JWT shape is wrong, the algorithm isn't `HS256`, the signature
@@ -232,9 +244,9 @@ Fired after a contract is created against your app. `paymentData` is omitted.
     "code": "INV-1042",
     "appId": "65f...",
     "user": "67d...",
-    "contractType": "Invoice"
+    "contractType": "Invoice",
   },
-  "paymentData": null
+  "paymentData": null,
 }
 ```
 
@@ -250,8 +262,8 @@ Fired when a transfer is attached to a contract installment.
     "id": "9b2...",
     "amount": 250,
     "paymentDate": "2026-05-12T18:31:04.000Z",
-    "transactionHash": "0xabc..."
-  }
+    "transactionHash": "0xabc...",
+  },
 }
 ```
 
@@ -270,14 +282,14 @@ Fired when an invited identity completes the OAuth flow against your app.
     "id": "67d...",
     "handle": "alice",
     "email": "alice@example.com",
-    "githubLogin": "alice-gh"
+    "githubLogin": "alice-gh",
   },
   "authorization": {
     "id": "aa1...",
     "scopes": ["profile", "payments.read"],
     "expiresAt": "2027-05-12T18:31:04.000Z",
     "expiresIn": 31536000,
-    "tokenType": "Bearer"
+    "tokenType": "Bearer",
   },
   "accessToken": "access_...",
   "refreshToken": "refresh_...",
@@ -288,8 +300,8 @@ Fired when an invited identity completes the OAuth flow against your app.
     "identityType": "email",
     "identityValue": "alice@example.com",
     "batchId": "uuid-or-null",
-    "acceptedAt": "2026-05-12T18:31:04.000Z"
-  }
+    "acceptedAt": "2026-05-12T18:31:04.000Z",
+  },
 }
 ```
 
@@ -303,32 +315,33 @@ slightly between flows — code against the union below.
 ```jsonc
 {
   "appId": "65f...",
-  "clientId": "app_abcd1234",       // OAuth-flow only
+  "clientId": "app_abcd1234", // OAuth-flow only
   "batch": {
     "id": "uuid-batch",
-    "chain": "base",                // batchWebhook flow
-    "status": "pending"             // batchWebhook flow
+    "chain": "base", // batchWebhook flow
+    "status": "pending", // batchWebhook flow
   },
   "payee": {
     "identityType": "email",
     "identityValue": "alice@example.com",
     "receiver": "0xRecipient...",
     "amount": 100,
-    "memo": "Bonus payment",        // direct-add flow
-    "attachedAt": "2026-05-12T..."  // OAuth-flow only
+    "memo": "Bonus payment", // direct-add flow
+    "attachedAt": "2026-05-12T...", // OAuth-flow only
   },
   "user": {
     "id": "67d...",
     "handle": "alice",
-    "email": "alice@example.com"
+    "email": "alice@example.com",
   },
-  "invite": {                        // shape varies by flow
+  "invite": {
+    // shape varies by flow
     "id": "inv-id",
     "batchId": "uuid-batch",
     "identityType": "email",
     "identityValue": "alice@example.com",
-    "acceptedAt": "2026-05-12T..."
-  }
+    "acceptedAt": "2026-05-12T...",
+  },
 }
 ```
 
@@ -347,23 +360,23 @@ Fired when on-chain funding lands for a batch. Two emit paths:
   "batch": {
     "id": "uuid-batch",
     "chain": "base",
-    "status": "funded",              // or "partially_funded"
-    "batchDataHash": "0x...",        // instant flow
-    "batchHash": "0x...",            // merkle flow
+    "status": "funded", // or "partially_funded"
+    "batchDataHash": "0x...", // instant flow
+    "batchHash": "0x...", // merkle flow
     "batchTransactionHash": "0x...",
-    "batchContract": "0x...",        // instant flow
-    "contractAddress": "0x...",      // merkle flow
-    "merkleBatchContract": "0x...",  // merkle flow
-    "totalFunded": 1500,             // merkle flow
-    "fullyFunded": true              // merkle flow
+    "batchContract": "0x...", // instant flow
+    "contractAddress": "0x...", // merkle flow
+    "merkleBatchContract": "0x...", // merkle flow
+    "totalFunded": 1500, // merkle flow
+    "fullyFunded": true, // merkle flow
   },
   "funding": {
     "amount": 1500,
-    "token": "0xTokenContract...",   // or 0x0 for native
-    "payer": "0xPayer...",           // instant flow
-    "fundedAt": 1747068664,          // unix seconds
-    "transactionHash": "0x..."
-  }
+    "token": "0xTokenContract...", // or 0x0 for native
+    "payer": "0xPayer...", // instant flow
+    "fundedAt": 1747068664, // unix seconds
+    "transactionHash": "0x...",
+  },
 }
 ```
 
@@ -381,7 +394,7 @@ time a given payment row transitions from unclaimed to claimed.
     "chain": "base",
     "status": "funded",
     "batchHash": "0x...",
-    "merkleBatchContract": "0x..."
+    "merkleBatchContract": "0x...",
   },
   "payee": {
     "paymentId": "uuid-payment",
@@ -391,14 +404,14 @@ time a given payment row transitions from unclaimed to claimed.
     "decimals": 6,
     "memo": "INV-1042:install-3",
     "orderIndex": 0,
-    "claimDate": 1747068664
+    "claimDate": 1747068664,
   },
   "claim": {
     "claimedAt": "2026-05-12T18:31:04.000Z",
     "transactionHash": "0xclaim...",
     "onchainAmount": "250000000",
-    "onchainToken": "0xTokenContract..."
-  }
+    "onchainToken": "0xTokenContract...",
+  },
 }
 ```
 
@@ -457,29 +470,29 @@ Use these scope values in the `scopes` array when creating OAuth invite bundles.
 ### App Invite Example
 
 ```ts
-import { PviumSdk } from "@pvium/sdk";
+import { PviumSdk } from '@pvium/sdk';
 
 const pvium = PviumSdk.init({
-  environment: "sandbox",
+  environment: 'sandbox',
   apiKey: process.env.PVIUM_API_KEY as string,
   clientId: process.env.PVIUM_CLIENT_ID as string,
 });
 
 const bundle = pvium.invites.createBundle({
   identities: [
-    { type: "email", value: "payee@example.com" },
-    { type: "handle", value: "payee_handle" },
-    { type: "address", value: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e" },
+    { type: 'email', value: 'payee@example.com' },
+    { type: 'handle', value: 'payee_handle' },
+    { type: 'address', value: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e' },
   ],
-  scopes: ["read:user", "read:ethereum_wallet"],
-  chain: "ethereum",
+  scopes: ['read:user', 'read:ethereum_wallet'],
+  chain: 'ethereum',
   stateParams: {
-    source: "admin-invite",
+    source: 'admin-invite',
   },
 });
 
 const signed = await pvium.invites.signBundle(bundle, {
-  chain: "ethereum",
+  chain: 'ethereum',
   privateKey: process.env.PVIUM_INVITE_SIGNER_PRIVATE_KEY as string,
 });
 
@@ -488,8 +501,6 @@ console.log(signed.groupInviteLink);
 
 await pvium.invites.commitBundle(signed);
 ```
-
-
 
 ### Batch Invite Example
 
@@ -500,22 +511,22 @@ const signed = await pvium.invites.createSignedBundle(
   {
     identities: [
       {
-        type: "email",
-        value: "payee@example.com",
+        type: 'email',
+        value: 'payee@example.com',
         defaultPayoutAmount: 250,
       },
     ],
-    scopes: ["read:user", "read:ethereum_wallet"],
-    chain: "ethereum",
+    scopes: ['read:user', 'read:ethereum_wallet'],
+    chain: 'ethereum',
     batchInvite: {
-      batchId: "batch_123",
+      batchId: 'batch_123',
       stateParams: {
-        source: "bulk-payments",
+        source: 'bulk-payments',
       },
     },
   },
   {
-    chain: "ethereum",
+    chain: 'ethereum',
     privateKey: process.env.PVIUM_INVITE_SIGNER_PRIVATE_KEY as string,
   },
 );
@@ -531,9 +542,9 @@ OAuth `state` is caller-owned state. Pass a plain state string when you already 
 
 ```ts
 const bundle = pvium.invites.createBundle({
-  identities: [{ type: "email", value: "payee@example.com" }],
-  chain: "ethereum",
-  state: "return-to-admin",
+  identities: [{ type: 'email', value: 'payee@example.com' }],
+  chain: 'ethereum',
+  state: 'return-to-admin',
 });
 ```
 
@@ -541,24 +552,23 @@ Use `stateParams` when you want the SDK to encode multiple state values:
 
 ```ts
 const bundle = pvium.invites.createBundle({
-  identities: [{ type: "email", value: "payee@example.com" }],
-  chain: "ethereum",
-  state: "return-to-admin",
+  identities: [{ type: 'email', value: 'payee@example.com' }],
+  chain: 'ethereum',
+  state: 'return-to-admin',
   stateParams: {
-    campaign: "spring",
-    redirectTab: "payees",
+    campaign: 'spring',
+    redirectTab: 'payees',
   },
 });
 ```
 
 For compatibility, bundles without custom state still use `b_<batchId>` as legacy batch state. New integrations should read batch identity from the explicit `batchId` query parameter.
 
-
 ## Payout Workflows
 
-The `pvium.payout` service supports Instant, Scheduled, Milestone, and Escrow
-payouts. Server-side integrations may pass a private key as the signer; browser
-apps should pass wallet signing callbacks instead.
+The `pvium.payout` service supports Instant, Scheduled, Milestone, and Dynamic
+Pool payouts. Server-side integrations may pass a private key as the signer;
+browser apps should pass wallet signing callbacks instead.
 
 Single-payout responses are returned as payout intent objects. Payout fields are
 available at the top level and helper methods can be called directly.
@@ -570,15 +580,15 @@ batch data so the payout cannot be modified silently after approval.
 
 ```ts
 const payoutIntent = await pvium.payout.create({
-  type: "Instant",
-  chain: "base",
-  name: "Creator payroll",
+  type: 'Instant',
+  chain: 'base',
+  name: 'Creator payroll',
   payments: [
     {
-      receiver: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+      receiver: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
       amount: 100,
-      token: "usdc",
-      memo: "February work",
+      token: 'usdc',
+      memo: 'February work',
     },
   ],
 });
@@ -596,16 +606,16 @@ or the matching lowercase symbol. When `payoutCurrency` is set, omit per-payment
 
 ```ts
 const payoutIntent = await pvium.payout.create({
-  type: "Scheduled",
-  chain: "base",
-  name: "March creator payouts",
+  type: 'Scheduled',
+  chain: 'base',
+  name: 'March creator payouts',
   payoutCurrency: PayoutCurrency.USDC,
   scheduleDate: 1777488000, //unix timestamp in seconds
   payments: [
     {
-      receiver: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+      receiver: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
       amount: 100,
-      memo: "March work",
+      memo: 'March work',
     },
   ],
 });
@@ -629,25 +639,25 @@ can claim milestone payments.
 
 ```ts
 const commitment = await pvium.payout.create({
-  type: "Milestone",
-  chain: "base",
-  name: "Website build",
+  type: 'Milestone',
+  chain: 'base',
+  name: 'Website build',
   payoutCurrency: PayoutCurrency.USDC,
   metadata: {
     gracePeriod: 7 * 24 * 60 * 60,
     disapprovalDeadline: 24 * 60 * 60,
     milestones: [
       {
-        name: "Design approval",
+        name: 'Design approval',
         amount: 500,
-        dueDate: "2026-07-01T00:00:00.000Z",
-        status: "pending",
+        dueDate: '2026-07-01T00:00:00.000Z',
+        status: 'pending',
       },
       {
-        name: "Production release",
+        name: 'Production release',
         amount: 1500,
-        dueDate: "2026-08-01T00:00:00.000Z",
-        status: "pending",
+        dueDate: '2026-08-01T00:00:00.000Z',
+        status: 'pending',
       },
     ],
   },
@@ -660,49 +670,49 @@ const finalizedCommitment = await commitment.finalize(
 console.log(finalizedCommitment.fundingUrl);
 ```
 
+### Dynamic Pool Payouts
 
+Dynamic Pool payouts let you fund a reusable payout pool first, then add payees
+and payouts whenever you need to distribute from that pool. This works well
+when the final recipients, amounts, or timing may change over time.
 
-### Escrow Payouts
+1. Create and finalize the Dynamic Pool. This produces the pool batch
+   hash and funding signature.
+2. Fund the pool on the payer-facing payment screen.
+3. Add payees and payouts whenever needed after the pool status is `funded` using your Payout signing keys.
 
-Escrow payouts are funded before payees are attached:
-
-1. Create and finalize the escrow payout. This produces the escrow batch hash
-   and funding signature.
-2. Fund the escrow on the payer-facing payment screen.
-3. Add payees only after the escrow status is `funded`.
-
-When you add payments to a funded escrow payout object, `addPayments` creates a
-linked Scheduled child payout and finalizes/signs it automatically using the
-provided `signer`. This is the same signer flow used for scheduled payouts. The
-child batch is hidden from the top-level batch list; payees appear under the
-escrow.
+When you add payments to a funded Dynamic Pool payout object, `addPayments`
+creates a linked Scheduled child payout and finalizes/signs it automatically
+using the provided `signer`. This is the same signer flow used for scheduled
+payouts. The child batch is hidden from the top-level batch list; payees appear
+under the pool.
 
 ```ts
-const escrow = await pvium.payout.create({
-  type: "Escrow",
-  chain: "base",
-  name: "Open creator escrow",
+const dynamicPool = await pvium.payout.create({
+  type: 'Pool',
+  chain: 'base',
+  name: 'Open creator pool',
   lockDuration: 7 * 24 * 60 * 60,
-  payoutCurrency: "usdc",
+  payoutCurrency: 'usdc',
 });
 
-const finalizedEscrow = await escrow.finalize(
+const finalizedDynamicPool = await dynamicPool.finalize(
   process.env.PVIUM_SIGNER_PRIVATE_KEY!,
 );
 
-// Fund finalizedEscrow.fundingUrl in the Pvium payment UI, then refresh
-// the escrow from the API so status is "funded".
-const fundedEscrow = await pvium.payout.get(escrow.id);
+// Fund finalizedDynamicPool.fundingUrl in the Pvium payment UI, then refresh
+// the pool from the API so status is "funded".
+const fundedDynamicPool = await pvium.payout.get(dynamicPool.id);
 
 // This creates a linked
 // Scheduled payout for these payees, signs/finalizes it with `signer`, and
-// links it back to the funded escrow.
-await fundedEscrow.addPayments({
+// links it back to the funded pool.
+await fundedDynamicPool.addPayments({
   payments: [
     {
-      receiver: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+      receiver: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
       amount: 100,
-      memo: "Approved payout",
+      memo: 'Approved payout',
     },
   ],
   signer: process.env.PVIUM_SIGNER_PRIVATE_KEY!,
@@ -726,22 +736,22 @@ payment list is capped, `payoutIntent.paymentsTruncated` is `true`;
 
 ```ts
 const payoutIntent = await pvium.payout.create({
-  type: "Instant",
-  chain: "base",
-  name: "Draft payout",
+  type: 'Instant',
+  chain: 'base',
+  name: 'Draft payout',
   payments: [
     {
-      receiver: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+      receiver: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
       amount: 100,
-      token: "usdc",
-      memo: "Initial amount",
+      token: 'usdc',
+      memo: 'Initial amount',
     },
   ],
 });
 
 await payoutIntent.editPayment(123, {
   amount: 125,
-  memo: "Adjusted amount",
+  memo: 'Adjusted amount',
 });
 
 await payoutIntent.deletePayment(123);
@@ -762,11 +772,9 @@ await payoutIntent.delete();
 Batch invite roots and individual batch invites can be revoked by id:
 
 ```ts
-await payoutIntent.revokeInviteRoot("invite_root_123");
-await payoutIntent.revokeInvite("invite_123");
+await payoutIntent.revokeInviteRoot('invite_root_123');
+await payoutIntent.revokeInvite('invite_123');
 ```
-
-
 
 ### Browser Wallet Signing
 
@@ -774,7 +782,7 @@ In browser apps, do not pass a private key. Pass signing callbacks instead. You 
 
 ```ts
 const signed = await pvium.invites.signBundle(bundle, {
-  chain: "ethereum",
+  chain: 'ethereum',
   signerAddress: walletAddress,
   signMasterSecret: async (message) => wallet.signMessage(message),
   signInviteRoot: async (message) => wallet.signMessage(message),
@@ -791,11 +799,11 @@ Use `createSignedAndCommit` when you do not need to inspect or display generated
 ```ts
 await pvium.invites.createSignedAndCommit(
   {
-    identities: [{ type: "email", value: "payee@example.com" }],
-    chain: "ethereum",
+    identities: [{ type: 'email', value: 'payee@example.com' }],
+    chain: 'ethereum',
   },
   {
-    chain: "ethereum",
+    chain: 'ethereum',
     privateKey: process.env.PVIUM_INVITE_SIGNER_PRIVATE_KEY as string,
   },
 );

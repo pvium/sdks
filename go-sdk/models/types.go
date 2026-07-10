@@ -272,8 +272,13 @@ const (
 	PayoutTypeInstant   PayoutType = "Instant"
 	PayoutTypeScheduled PayoutType = "Scheduled"
 	PayoutTypeEscrow    PayoutType = "Escrow"
+	PayoutTypePool      PayoutType = "Pool"
 	PayoutTypeMilestone PayoutType = "Milestone"
 )
+
+func IsPoolLikePayoutType(paymentType PayoutType) bool {
+	return paymentType == PayoutTypeEscrow || paymentType == PayoutTypePool
+}
 
 type PayoutChain string
 

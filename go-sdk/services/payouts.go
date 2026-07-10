@@ -316,9 +316,9 @@ func (s *PayoutService) AddPayments(ctx context.Context, payout any, input any, 
 		requestOptions = addInput.RequestOptions
 	}
 
-	if payoutRecord, ok := payout.(models.PayoutRecord); ok && payoutRecord.PaymentType == models.PayoutTypeEscrow {
+	if payoutRecord, ok := payout.(models.PayoutRecord); ok && models.IsPoolLikePayoutType(payoutRecord.PaymentType) {
 		if addInput == nil || addInput.Signer == nil {
-			return models.APIResponse[map[string]any]{}, errors.New("a signer or private key is required to add payments to escrow payouts")
+			return models.APIResponse[map[string]any]{}, errors.New("a signer or private key is required to add payments to pool payouts")
 		}
 		finalizeOptions := models.PayoutFinalizeOptions{}
 		if addInput.FinalizeOptions != nil {
@@ -326,9 +326,9 @@ func (s *PayoutService) AddPayments(ctx context.Context, payout any, input any, 
 		}
 		return s.addEscrowPayees(ctx, payoutRecord, payments, *addInput.Signer, finalizeOptions, requestOptions)
 	}
-	if payoutRecord, ok := payout.(*models.PayoutRecord); ok && payoutRecord != nil && payoutRecord.PaymentType == models.PayoutTypeEscrow {
+	if payoutRecord, ok := payout.(*models.PayoutRecord); ok && payoutRecord != nil && models.IsPoolLikePayoutType(payoutRecord.PaymentType) {
 		if addInput == nil || addInput.Signer == nil {
-			return models.APIResponse[map[string]any]{}, errors.New("a signer or private key is required to add payments to escrow payouts")
+			return models.APIResponse[map[string]any]{}, errors.New("a signer or private key is required to add payments to pool payouts")
 		}
 		finalizeOptions := models.PayoutFinalizeOptions{}
 		if addInput.FinalizeOptions != nil {
@@ -336,9 +336,9 @@ func (s *PayoutService) AddPayments(ctx context.Context, payout any, input any, 
 		}
 		return s.addEscrowPayees(ctx, *payoutRecord, payments, *addInput.Signer, finalizeOptions, requestOptions)
 	}
-	if payoutIntent, ok := payout.(*PayoutIntent); ok && payoutIntent != nil && payoutIntent.PaymentType == models.PayoutTypeEscrow {
+	if payoutIntent, ok := payout.(*PayoutIntent); ok && payoutIntent != nil && models.IsPoolLikePayoutType(payoutIntent.PaymentType) {
 		if addInput == nil || addInput.Signer == nil {
-			return models.APIResponse[map[string]any]{}, errors.New("a signer or private key is required to add payments to escrow payouts")
+			return models.APIResponse[map[string]any]{}, errors.New("a signer or private key is required to add payments to pool payouts")
 		}
 		finalizeOptions := models.PayoutFinalizeOptions{}
 		if addInput.FinalizeOptions != nil {
@@ -346,9 +346,9 @@ func (s *PayoutService) AddPayments(ctx context.Context, payout any, input any, 
 		}
 		return s.addEscrowPayees(ctx, payoutIntent.Data, payments, *addInput.Signer, finalizeOptions, requestOptions)
 	}
-	if payoutIntent, ok := payout.(PayoutIntent); ok && payoutIntent.PaymentType == models.PayoutTypeEscrow {
+	if payoutIntent, ok := payout.(PayoutIntent); ok && models.IsPoolLikePayoutType(payoutIntent.PaymentType) {
 		if addInput == nil || addInput.Signer == nil {
-			return models.APIResponse[map[string]any]{}, errors.New("a signer or private key is required to add payments to escrow payouts")
+			return models.APIResponse[map[string]any]{}, errors.New("a signer or private key is required to add payments to pool payouts")
 		}
 		finalizeOptions := models.PayoutFinalizeOptions{}
 		if addInput.FinalizeOptions != nil {
@@ -482,14 +482,14 @@ func (s *PayoutService) Delete(ctx context.Context, payoutID string, options *mo
 }
 
 func (s *PayoutService) addEscrowPayees(ctx context.Context, escrowPayout models.PayoutRecord, payments []models.PayoutPayment, signer models.PayoutSignerInput, options models.PayoutFinalizeOptions, requestOptions *models.RequestOptions) (models.APIResponse[map[string]any], error) {
-	if escrowPayout.PaymentType != models.PayoutTypeEscrow {
-		return models.APIResponse[map[string]any]{}, errors.New("addEscrowPayees requires an escrow payout")
+	if !models.IsPoolLikePayoutType(escrowPayout.PaymentType) {
+		return models.APIResponse[map[string]any]{}, errors.New("addEscrowPayees requires a pool payout")
 	}
 	if escrowPayout.BatchHash == "" {
-		return models.APIResponse[map[string]any]{}, errors.New("escrow payout must be finalized before adding payees")
+		return models.APIResponse[map[string]any]{}, errors.New("pool payout must be finalized before adding payees")
 	}
 	if escrowPayout.Status != "" && escrowPayout.Status != "funded" {
-		return models.APIResponse[map[string]any]{}, errors.New("escrow payout must be funded before adding payees")
+		return models.APIResponse[map[string]any]{}, errors.New("pool payout must be funded before adding payees")
 	}
 	if len(payments) == 0 {
 		return models.APIResponse[map[string]any]{}, errors.New("at least one payee is required")
@@ -535,7 +535,7 @@ func (s *PayoutService) addEscrowPayees(ctx context.Context, escrowPayout models
 	}
 	name := options.Name
 	if name == "" {
-		name = firstNonEmpty(escrowPayout.Name, "Escrow payout") + " Payees"
+		name = firstNonEmpty(escrowPayout.Name, "Pool payout") + " Payees"
 	}
 
 	payout := models.PayoutRecord{
@@ -758,8 +758,8 @@ func (s *PayoutService) buildFinalizePayload(ctx context.Context, payout models.
 		return payload, batchDataHash, batchHash, merkleRoot, nil
 	}
 
-	if payout.PaymentType == models.PayoutTypeEscrow {
-		chainID, err := resolvePayoutChainID(chain, options.ChainID, "escrow payout finalization")
+	if models.IsPoolLikePayoutType(payout.PaymentType) {
+		chainID, err := resolvePayoutChainID(chain, options.ChainID, "pool payout finalization")
 		if err != nil {
 			return nil, "", "", "", err
 		}
@@ -768,11 +768,11 @@ func (s *PayoutService) buildFinalizePayload(ctx context.Context, payout models.
 			nonce = strconv.FormatInt(timestamp, 10)
 		}
 		if nonce == "" {
-			return nil, "", "", "", errors.New("payout nonce is required to finalize escrow payouts")
+			return nil, "", "", "", errors.New("payout nonce is required to finalize pool payouts")
 		}
 		fundingToken := firstNonEmpty(normalizeTokenAddress(options.FundingToken), resolvePayoutFundingTokenCandidate(payout))
 		if fundingToken == "" {
-			return nil, "", "", "", errors.New("fundingToken must be provided as an address to finalize escrow payouts")
+			return nil, "", "", "", errors.New("fundingToken must be provided as an address to finalize pool payouts")
 		}
 		payments, err = normalizePaymentsForSigning(payments, chain, fundingToken)
 		if err != nil {
@@ -786,7 +786,7 @@ func (s *PayoutService) buildFinalizePayload(ctx context.Context, payout models.
 			lockDuration = int64(payout.LockDuration)
 		}
 		if lockDuration <= 0 {
-			return nil, "", "", "", errors.New("lockDuration is required to finalize escrow payouts")
+			return nil, "", "", "", errors.New("lockDuration is required to finalize pool payouts")
 		}
 		batchDataHash, err = pvcrypto.GenerateInstantPayoutHash(payments, nonce)
 		if err != nil {
@@ -801,7 +801,7 @@ func (s *PayoutService) buildFinalizePayload(ctx context.Context, payout models.
 			signerAddress = returnedAddress
 		}
 		if signerAddress == "" {
-			return nil, "", "", "", errors.New("escrow payout finalization requires signerAddress")
+			return nil, "", "", "", errors.New("pool payout finalization requires signerAddress")
 		}
 		batchHash, err = pvcrypto.ComputeEscrowPayoutHash(pvcrypto.EscrowPayoutHashParams{
 			PayoutID:     payout.ID,
@@ -864,6 +864,9 @@ func buildCreatePayoutBody(input models.CreatePayoutInput) (map[string]any, erro
 	}
 	if paymentType == "" {
 		paymentType = models.PayoutTypeInstant
+	}
+	if paymentType == models.PayoutTypeEscrow {
+		paymentType = models.PayoutTypePool
 	}
 	isCommitment := false
 	if paymentType == models.PayoutTypeMilestone {

@@ -396,7 +396,7 @@ _, err := sdk.Invites.CreateSignedAndCommit(
 
 ## Payout Workflows
 
-The `sdk.Payouts` service supports Instant, Scheduled, Milestone, and Escrow payouts. Server-side integrations may pass a private key as the signer; wallet-based flows can pass signing callbacks on `PayoutSignerInput`.
+The `sdk.Payouts` service supports Instant, Scheduled, Milestone, and Pool payouts. Server-side integrations may pass a private key as the signer; wallet-based flows can pass signing callbacks on `PayoutSignerInput`.
 
 Supported payout chains are `base`, `bsc`, `solana`, `base-testnet`, `solana-testnet`, and `localhost`. Supported payout currencies are `USDC` and `USDT`. For payment `Token`, pass `"usdc"`, `"usdt"`, or the supported token address or mint for the selected chain. The SDK maps it to the configured token address or mint and derives decimals.
 
@@ -546,23 +546,23 @@ if err != nil {
 fmt.Println(commitment.ID)
 ```
 
-### Escrow Payouts
+### Pool Payouts
 
-Escrow payouts are funded before payees are attached:
+Pool payouts are funded before payees are attached:
 
-1. Create and finalize the escrow payout. This produces the escrow batch hash and funding signature.
-2. Fund the escrow on the payer-facing payment screen.
-3. Add payees only after the escrow status is `funded`.
+1. Create and finalize the pool payout. This produces the pool batch hash and funding signature.
+2. Fund the pool on the payer-facing payment screen.
+3. Add payees only after the pool status is `funded`.
 
-When you add payments to a funded escrow payout object, `AddPayments` creates a linked Scheduled child payout and finalizes/signs it automatically using the provided `Signer`. This is the same signer flow used for scheduled payouts. The child batch is hidden from the top-level batch list; payees appear under the escrow.
+When you add payments to a funded pool payout object, `AddPayments` creates a linked Scheduled child payout and finalizes/signs it automatically using the provided `Signer`. This is the same signer flow used for scheduled payouts. The child batch is hidden from the top-level batch list; payees appear under the pool.
 
 ```go
 lockDuration := int64(7 * 24 * 60 * 60)
 
-escrow, err := sdk.Payouts.Create(ctx, pvium.CreatePayoutInput{
-	Type:           pvium.PayoutTypeEscrow,
+pool, err := sdk.Payouts.Create(ctx, pvium.CreatePayoutInput{
+	Type:           pvium.PayoutTypePool,
 	Chain:          string(pvium.PayoutChainBase),
-	Name:           "Open creator escrow",
+	Name:           "Open creator pool",
 	LockDuration:   &lockDuration,
 	PayoutCurrency: string(pvium.PayoutCurrencyUSDC),
 }, nil)
@@ -570,7 +570,7 @@ if err != nil {
 	log.Fatal(err)
 }
 
-finalizedEscrow, err := escrow.Finalize(
+finalizedPool, err := pool.Finalize(
 	ctx,
 	pvium.PayoutSignerInput{PrivateKey: os.Getenv("PVIUM_SIGNER_PRIVATE_KEY")},
 	pvium.PayoutFinalizeOptions{},
@@ -580,18 +580,18 @@ if err != nil {
 	log.Fatal(err)
 }
 
-fmt.Println(finalizedEscrow.FundingURL)
+fmt.Println(finalizedPool.FundingURL)
 
-// Fund finalizedEscrow.FundingURL in the Pvium payment UI, then refresh
-// the escrow from the API so Status is "funded".
-fundedEscrow, err := sdk.Payouts.Get(ctx, escrow.ID, nil)
+// Fund finalizedPool.FundingURL in the Pvium payment UI, then refresh
+// the pool from the API so Status is "funded".
+fundedPool, err := sdk.Payouts.Get(ctx, pool.ID, nil)
 if err != nil {
 	log.Fatal(err)
 }
 
 claimDate := int64(1777488000)
 
-_, err = fundedEscrow.AddPayments(ctx, pvium.AddPayoutPaymentsInput{
+_, err = fundedPool.AddPayments(ctx, pvium.AddPayoutPaymentsInput{
 	Payments: []pvium.PayoutPayment{
 		{
 			Receiver: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
@@ -611,7 +611,7 @@ if err != nil {
 }
 ```
 
-If `AddPayments` receives a normal payout id or non-escrow payout object, it uses the standard add-payments endpoint. If it receives an escrow payout object, it requires `Signer` and runs the linked scheduled payout creation/finalization flow for you.
+If `AddPayments` receives a normal payout id or non-pool payout object, it uses the standard add-payments endpoint. If it receives a pool payout object, it requires `Signer` and runs the linked scheduled payout creation/finalization flow for you.
 
 ## Package Layout
 

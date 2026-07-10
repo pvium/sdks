@@ -27,6 +27,11 @@ PayoutSignerInput = Union[
     Dict[str, Any],
     Callable[[str], Union[str, Dict[str, Any]]],
 ]
+POOL_PAYOUT_TYPES = {"Pool", "Escrow"}
+
+
+def isPoolPayoutType(payout_type: Optional[str]) -> bool:
+    return payout_type in POOL_PAYOUT_TYPES
 
 
 STABLECOIN_TOKEN_ADDRESSES = {
@@ -336,8 +341,8 @@ def _resolve_payout_chain_id(chain: str, chain_id: Optional[int] = None, context
 def _map_payout_type(payout_type: Optional[str]) -> Dict[str, Any]:
     if payout_type == "Milestone":
         return {"paymentType": "Scheduled", "isCommitment": True}
-    if payout_type == "Escrow":
-        return {"paymentType": "Escrow", "isCommitment": False}
+    if isPoolPayoutType(payout_type):
+        return {"paymentType": "Pool", "isCommitment": False}
     if payout_type == "Scheduled":
         return {"paymentType": "Scheduled", "isCommitment": False}
     return {"paymentType": "Instant", "isCommitment": False}
@@ -822,10 +827,10 @@ class PviumPayoutService:
 
         payout_data = payout.get("data") if isinstance(payout, PayoutIntent) else payout
 
-        if isinstance(payout_data, dict) and payout_data.get("paymentType") == "Escrow":
+        if isinstance(payout_data, dict) and isPoolPayoutType(payout_data.get("paymentType")):
             signer = None if isinstance(input, list) else input.get("signer")
             if not signer:
-                raise RuntimeError("A signer or private key is required to add payments to escrow payouts")
+                raise RuntimeError("A signer or private key is required to add payments to pool payouts")
             finalize_options = {} if isinstance(input, list) else (input.get("finalizeOptions") or {})
             return self._add_escrow_payees(payout_data, payments, signer, finalize_options, request_options)
 
@@ -851,12 +856,12 @@ class PviumPayoutService:
         if isinstance(escrow_payout, PayoutIntent):
             escrow_payout = escrow_payout.get("data") or {}
 
-        if escrow_payout.get("paymentType") != "Escrow":
-            raise RuntimeError("addEscrowPayees requires an escrow payout")
+        if not isPoolPayoutType(escrow_payout.get("paymentType")):
+            raise RuntimeError("addEscrowPayees requires a pool payout")
         if not escrow_payout.get("batchHash"):
-            raise RuntimeError("Escrow payout must be finalized before adding payees")
+            raise RuntimeError("Payout pool must be finalized before adding payees")
         if escrow_payout.get("status") and escrow_payout.get("status") != "funded":
-            raise RuntimeError("Escrow payout must be funded before adding payees")
+            raise RuntimeError("Payout pool must be funded before adding payees")
         if not payments:
             raise RuntimeError("At least one payee is required")
 
@@ -874,7 +879,7 @@ class PviumPayoutService:
                 "id": options.get("id") or _create_payout_id(),
                 "type": "Scheduled",
                 "chain": options.get("chain") or escrow_payout.get("chain"),
-                "name": options.get("name") or f"{str(escrow_payout.get('name') or 'Escrow payout')} Payees",
+                "name": options.get("name") or f"{str(escrow_payout.get('name') or 'Payout Pool')} Payees",
                 "description": options.get("description"),
                 "complianceMode": options.get("complianceMode") or escrow_payout.get("complianceMode") or "Open",
                 "escrowBatch": escrow_payout,
@@ -1147,24 +1152,24 @@ class PviumPayoutService:
                     )
                 update_payload["fundingSignature"] = _sign_funding_digest(signer, funding_digest)
 
-        elif payout.get("paymentType") == "Escrow":
+        elif isPoolPayoutType(payout.get("paymentType")):
             nonce = payout.get("nonce") or (str(options.get("timestamp")) if options.get("timestamp") else None)
             if not nonce:
-                raise RuntimeError("Payout nonce is required to finalize escrow payouts")
+                raise RuntimeError("Payout nonce is required to finalize pool payouts")
 
             funding_token = _resolve_funding_token(payout, options)
-            chain_id = _resolve_payout_chain_id(chain, options.get("chainId"), "escrow payout finalization")
+            chain_id = _resolve_payout_chain_id(chain, options.get("chainId"), "pool payout finalization")
             payments = _normalize_payments_for_signing(payments, chain, funding_token)
             lock_duration = int(options.get("lockDuration") or (payout.get("metadata") or {}).get("lockDuration") or payout.get("lockDuration") or 0)
             if lock_duration <= 0:
-                raise RuntimeError("lockDuration is required to finalize escrow payouts")
+                raise RuntimeError("lockDuration is required to finalize pool payouts")
 
             batch_data_hash = generateInstantPayoutHash(payments, nonce)
             message = f"PVIUM_SIGNED_BATCH:{client_id}:{batch_data_hash}:{compliance_mode}:{timestamp}"
             signature = _sign_payout_finalize_message(signer, message, chain)
             signer_address = _require_signer_address(
                 signer_address or signature.get("signerAddress"),
-                "Escrow payout finalization",
+                "Payout pool finalization",
             )
 
             escrow_batch_hash = computeEscrowPayoutHash(

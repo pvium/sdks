@@ -18,6 +18,7 @@ from pvium_sdk import (
     computeScheduledPayoutHash,
     createPayoutNonce,
     generateInstantPayoutHash,
+    isPoolPayoutType,
 )
 
 
@@ -59,6 +60,12 @@ def test_sdk_init_exposes_payout_service():
     assert callable(sdk.payout.revokeInvite)
     assert callable(sdk.payout.revokeInviteRoot)
     assert callable(sdk.payout.delete)
+
+
+def test_is_pool_payout_type_accepts_pool_and_escrow():
+    assert isPoolPayoutType("Pool")
+    assert isPoolPayoutType("Escrow")
+    assert not isPoolPayoutType("Instant")
 
 
 def test_create_returns_payout_intent_with_proxy_methods():
@@ -129,6 +136,28 @@ def test_create_returns_payout_intent_with_proxy_methods():
     assert finalized.payout.id == "batch_1"
     assert finalized["data"]["payout"]["id"] == "batch_1"
     assert requests[1]["method"] == "PATCH"
+
+
+def test_create_normalizes_pool_and_escrow_inputs_to_pool():
+    requests = []
+    sdk = PviumSdk.init(
+        PviumSdkConfig(
+            baseUrl="http://localhost:4005/v1",
+            fetchFn=make_fetch(
+                [
+                    {"meta": {"statusCode": 201, "success": True}, "data": {"id": "batch_pool", "chain": "base", "paymentType": "Pool"}},
+                    {"meta": {"statusCode": 201, "success": True}, "data": {"id": "batch_pool", "chain": "base", "paymentType": "Pool"}},
+                ],
+                requests,
+            ),
+        )
+    )
+
+    sdk.payout.create({"type": "Pool", "chain": "base", "payoutCurrency": PayoutCurrency.USDC})
+    sdk.payout.create({"type": "Escrow", "chain": "base", "payoutCurrency": PayoutCurrency.USDC})
+
+    assert json.loads(requests[0]["payload"])["paymentType"] == "Pool"
+    assert json.loads(requests[1]["payload"])["paymentType"] == "Pool"
 
 
 def test_generate_instant_payout_hash_matches_manual_encoding():
@@ -759,6 +788,28 @@ def test_add_payments_rejects_escrow_payouts_without_signer():
                 "id": "7a6ca76d-77f7-4c0e-9da9-c64f1cb18a1f",
                 "chain": "base",
                 "paymentType": "Escrow",
+                "status": "funded",
+                "batchHash": "0x" + "11" * 32,
+                "metadata": {"payoutCurrency": "0x0000000000000000000000000000000000000002"},
+                "app": {"clientId": "app_test"},
+            },
+            [{"receiver": "0x0000000000000000000000000000000000000001", "amount": "25", "decimals": 6}],
+        )
+    except RuntimeError as err:
+        assert "signer or private key is required" in str(err)
+    else:
+        raise AssertionError("expected signer error")
+
+
+def test_add_payments_routes_pool_payouts_through_pool_payee_flow():
+    sdk = PviumSdk.init(PviumSdkConfig(baseUrl="http://localhost:4005/v1", fetchFn=make_fetch([], [])))
+
+    try:
+        sdk.payout.addPayments(
+            {
+                "id": "7a6ca76d-77f7-4c0e-9da9-c64f1cb18a1f",
+                "chain": "base",
+                "paymentType": "Pool",
                 "status": "funded",
                 "batchHash": "0x" + "11" * 32,
                 "metadata": {"payoutCurrency": "0x0000000000000000000000000000000000000002"},
