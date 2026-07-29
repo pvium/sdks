@@ -80,7 +80,8 @@ The `pvium.oauth` service exposes OAuth helper operations:
 - `getUserInfo({ accessToken })`
 
 When creating invite bundles for an OAuth flow, pass `redirectUri` so generated
-invite links include the registered callback URL:
+invite links include the registered callback URL. Use `base` or `bsc` for EVM
+invite chains; examples below use `base`.
 
 ```ts
 const signed = await pvium.invites.createSignedBundle(
@@ -88,10 +89,10 @@ const signed = await pvium.invites.createSignedBundle(
     identities: [{ type: 'github', value: 'octocat' }],
     scopes: ['read:user', 'read:github', 'write:invoice'],
     redirectUri: 'https://example.com/api/pvium/oauth/callback',
-    chain: 'ethereum',
+    chain: 'base',
   },
   {
-    chain: 'ethereum',
+    chain: 'base',
     privateKey: process.env.PVIUM_INVITE_SIGNER_PRIVATE_KEY as string,
   },
 );
@@ -454,17 +455,9 @@ Use these scope values in the `scopes` array when creating OAuth invite bundles.
 | User           | `read:user`                  | Read the authorized user basic profile (handle, email, name). |
 | User           | `read:business_profile`      | Read business profiles linked to the authorized user.         |
 | User           | `write:business_profile`     | Create and update business profiles.                          |
+| Identity       | `read:legal_id`              | Read verified legal name, address, and country.               |
 | Wallets        | `read:ethereum_wallet`       | Read authorized wallet details.                               |
 | Wallets        | `read:solana_wallet`         | Read authorized Solana wallet details.                        |
-| KYC and AML    | `read:kyc_status`            | Read KYC verification status.                                 |
-| KYC and AML    | `read:aml_status`            | Read AML screening status.                                    |
-| KYC and AML    | `read:legal_id`              | Read verified legal name, address, and country.               |
-| KYC and AML    | `read:kyc_legal_name`        | Read verified legal name details.                             |
-| KYC and AML    | `read:kyc_country`           | Read verified country details.                                |
-| KYC and AML    | `read:kyc_tax_id`            | Read verified tax ID details.                                 |
-| KYC and AML    | `read:kyc_dob`               | Read verified date of birth details.                          |
-| KYC and AML    | `read:kyc_address`           | Read verified address details.                                |
-| KYC and AML    | `read:kyc_document_metadata` | Read verification document metadata.                          |
 | Batch Payments | `read:batch_payment`         | Read batch payment records.                                   |
 | Batch Payments | `write:batch_payment`        | Create and update batch payments.                             |
 
@@ -486,14 +479,14 @@ const bundle = pvium.invites.createBundle({
     { type: 'address', value: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e' },
   ],
   scopes: ['read:user', 'read:ethereum_wallet'],
-  chain: 'ethereum',
+  chain: 'base',
   stateParams: {
     source: 'admin-invite',
   },
 });
 
 const signed = await pvium.invites.signBundle(bundle, {
-  chain: 'ethereum',
+  chain: 'base',
   privateKey: process.env.PVIUM_INVITE_SIGNER_PRIVATE_KEY as string,
 });
 
@@ -518,7 +511,7 @@ const signed = await pvium.invites.createSignedBundle(
       },
     ],
     scopes: ['read:user', 'read:ethereum_wallet'],
-    chain: 'ethereum',
+    chain: 'base',
     batchInvite: {
       batchId: 'batch_123',
       stateParams: {
@@ -527,7 +520,7 @@ const signed = await pvium.invites.createSignedBundle(
     },
   },
   {
-    chain: 'ethereum',
+    chain: 'base',
     privateKey: process.env.PVIUM_INVITE_SIGNER_PRIVATE_KEY as string,
   },
 );
@@ -544,7 +537,7 @@ OAuth `state` is caller-owned state. Pass a plain state string when you already 
 ```ts
 const bundle = pvium.invites.createBundle({
   identities: [{ type: 'email', value: 'payee@example.com' }],
-  chain: 'ethereum',
+  chain: 'base',
   state: 'return-to-admin',
 });
 ```
@@ -554,7 +547,7 @@ Use `stateParams` when you want the SDK to encode multiple state values:
 ```ts
 const bundle = pvium.invites.createBundle({
   identities: [{ type: 'email', value: 'payee@example.com' }],
-  chain: 'ethereum',
+  chain: 'base',
   state: 'return-to-admin',
   stateParams: {
     campaign: 'spring',
@@ -783,7 +776,7 @@ In browser apps, do not pass a private key. Pass signing callbacks instead. You 
 
 ```ts
 const signed = await pvium.invites.signBundle(bundle, {
-  chain: 'ethereum',
+  chain: 'base',
   signerAddress: walletAddress,
   signMasterSecret: async (message) => wallet.signMessage(message),
   signInviteRoot: async (message) => wallet.signMessage(message),
@@ -801,10 +794,10 @@ Use `createSignedAndCommit` when you do not need to inspect or display generated
 await pvium.invites.createSignedAndCommit(
   {
     identities: [{ type: 'email', value: 'payee@example.com' }],
-    chain: 'ethereum',
+    chain: 'base',
   },
   {
-    chain: 'ethereum',
+    chain: 'base',
     privateKey: process.env.PVIUM_INVITE_SIGNER_PRIVATE_KEY as string,
   },
 );
