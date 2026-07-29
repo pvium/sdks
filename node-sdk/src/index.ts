@@ -109,6 +109,9 @@ export type {
   FindAppInviteByIdentityResult,
   InviteMessageSignature,
   InviteSigningChain,
+  OpenOrganizationInviteCommitResult,
+  OpenOrganizationInviteDraft,
+  OpenOrganizationInviteInput,
   OAuthInviteBatchData,
   OAuthInviteBundleDraft,
   OAuthInviteBundleInput,
@@ -116,6 +119,8 @@ export type {
   OAuthInviteIdentity,
   OAuthInviteSigner,
   OAuthInviteStateParams,
+  OAuthScope,
+  SignedOpenOrganizationInvite,
   SignedOAuthInviteBundle,
 } from "./invites";
 export type {

@@ -1,7 +1,16 @@
 import crypto from "crypto-js";
-import { verifyMessage } from "ethers";
-import keccak256 from "keccak256";
+import { getBytes, keccak256, toUtf8Bytes, verifyMessage } from "ethers";
 import { MerkleTree } from "merkletreejs";
+
+const keccak256Buffer = (value: Buffer | Uint8Array | string): Buffer => {
+  const bytes =
+    typeof value === "string"
+      ? toUtf8Bytes(value)
+      : value instanceof Uint8Array
+        ? value
+        : new Uint8Array(value);
+  return Buffer.from(getBytes(keccak256(bytes)));
+};
 
 export interface BatchInviteMerkleInput {
   appClientId: string;
@@ -573,7 +582,7 @@ export const generateBatchInviteMerkleDataV2 = (
       defaultPayoutAmount: invite.defaultPayoutAmount,
       expiresAt,
     });
-    const leafBuffer = keccak256(Buffer.from(leafMessage, "utf8"));
+    const leafBuffer = keccak256Buffer(leafMessage);
 
     return {
       inviteId: invite.inviteId,
@@ -594,7 +603,7 @@ export const generateBatchInviteMerkleDataV2 = (
 
   const tree = new MerkleTree(
     invitesWithoutProofs.map((invite) => invite.leafBuffer),
-    keccak256,
+    keccak256Buffer,
     { sortPairs: true },
   );
   const root = tree.getHexRoot();
@@ -662,7 +671,7 @@ export const verifyBatchInviteProofV2 = (
     defaultPayoutAmount: input.defaultPayoutAmount,
     expiresAt,
   });
-  const leafBuffer = keccak256(Buffer.from(leafMessage, "utf8"));
+  const leafBuffer = keccak256Buffer(leafMessage);
   const leaf = `0x${leafBuffer.toString("hex")}`;
 
   if (
@@ -683,7 +692,7 @@ export const verifyBatchInviteProofV2 = (
     errors.push("Invite leaf does not match invite data");
   }
 
-  const tree = new MerkleTree([], keccak256, { sortPairs: true });
+  const tree = new MerkleTree([], keccak256Buffer, { sortPairs: true });
   const proofValid = tree.verify(input.proof || [], leafBuffer, input.root);
 
   if (!proofValid) {
@@ -766,7 +775,7 @@ export const generateBatchInviteMerkleData = (
       defaultPayoutAmount: invite.defaultPayoutAmount,
       expiresAt,
     });
-    const leafBuffer = keccak256(Buffer.from(leafMessage, "utf8"));
+    const leafBuffer = keccak256Buffer(leafMessage);
 
     return {
       inviteId: invite.inviteId,
@@ -784,7 +793,7 @@ export const generateBatchInviteMerkleData = (
 
   const tree = new MerkleTree(
     invitesWithoutProofs.map((invite) => invite.leafBuffer),
-    keccak256,
+    keccak256Buffer,
     { sortPairs: true },
   );
   const root = tree.getHexRoot();
@@ -845,7 +854,7 @@ export const verifyBatchInviteProof = (
     defaultPayoutAmount: input.defaultPayoutAmount,
     expiresAt,
   });
-  const leafBuffer = keccak256(Buffer.from(leafMessage, "utf8"));
+  const leafBuffer = keccak256Buffer(leafMessage);
   const leaf = `0x${leafBuffer.toString("hex")}`;
 
   if (input.loginHintHash !== loginHintHash) {
@@ -863,7 +872,7 @@ export const verifyBatchInviteProof = (
     errors.push("Invite leaf does not match invite data");
   }
 
-  const tree = new MerkleTree([], keccak256, { sortPairs: true });
+  const tree = new MerkleTree([], keccak256Buffer, { sortPairs: true });
   const proofValid = tree.verify(input.proof || [], leafBuffer, input.root);
 
   if (!proofValid) {

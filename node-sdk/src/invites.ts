@@ -1,4 +1,5 @@
 import { Wallet } from "ethers";
+import crypto from "crypto-js";
 import {
   PviumHttpClient,
   PviumSdkConfig,
@@ -8,6 +9,7 @@ import { RequestOptions } from "./types";
 import {
   buildInviteMasterSecretMessage,
   createInviteNonce,
+  createInviteSecret,
   createRootNonce,
   deriveInviteSecret,
   deriveMasterSecret,
@@ -19,6 +21,39 @@ import {
 } from "./invite-merkle";
 
 export type InviteSigningChain = "ethereum" | "solana";
+
+export type OAuthScope =
+  | "read:user"
+  | "read:invoice"
+  | "write:invoice"
+  | "read:accepted_invoice"
+  | "write:accepted_invoice"
+  | "read:business_profile"
+  | "write:business_profile"
+  | "read:ethereum_wallet"
+  | "read:solana_wallet"
+  | "read:kyc_status"
+  | "read:aml_status"
+  | "read:legal_id"
+  /**
+   * @deprecated Use read:legal_id instead.
+   */
+  | "read:kyc"
+  | "read:tax_certificates"
+  | "read:kyc_legal_name"
+  | "read:kyc_country"
+  | "read:kyc_tax_id"
+  | "read:kyc_dob"
+  | "read:kyc_address"
+  | "read:kyc_document_metadata"
+  | "read:batch_payment"
+  | "write:batch_payment"
+  | "write:escrow_claim"
+  | "read:escrow_earnings"
+  | "write:escrow_account"
+  | "read:escrow_account"
+  | "write:escrow_dispute"
+  | (string & {});
 
 export interface OAuthInviteIdentity {
   type: InviteIdentityType;
@@ -39,7 +74,7 @@ export interface OAuthInviteBatchData {
 
 export interface OAuthInviteBundleInput {
   identities: OAuthInviteIdentity[];
-  scopes?: string[];
+  scopes?: OAuthScope[];
   /**
    * @deprecated Prefer batchInvite.batchId for batch payment invite bundles.
    * Kept for backwards compatibility.
@@ -188,6 +223,77 @@ export interface OAuthInviteCommitResult {
   alreadyAccepted: boolean;
 }
 
+export interface OpenOrganizationInviteInput {
+  label?: string;
+  scopes?: OAuthScope[];
+  allowedIdentityTypes?: string[];
+  allowedEmailDomains?: string[];
+  requireKyc?: boolean;
+  requireTaxProfile?: boolean;
+  maxUses?: number;
+  expiresAt?: string | Date;
+  redirectUri?: string;
+  state?: string;
+  stateParams?: OAuthInviteStateParams;
+  createdAt?: number;
+  inviteNonce?: string;
+  inviteSecret?: string;
+}
+
+export interface OpenOrganizationInviteDraft {
+  clientId: string;
+  consentHost: string;
+  label?: string;
+  scopes: string[];
+  allowedIdentityTypes: string[];
+  allowedEmailDomains: string[];
+  requireKyc: boolean;
+  requireTaxProfile: boolean;
+  maxUses?: number;
+  expiresAt?: string;
+  redirectUri?: string;
+  state?: string;
+  stateParams?: OAuthInviteStateParams;
+  createdAt: number;
+  inviteNonce: string;
+  inviteSecret: string;
+}
+
+export interface SignedOpenOrganizationInvite {
+  clientId: string;
+  consentHost: string;
+  label?: string;
+  inviteNonce: string;
+  inviteSecret: string;
+  secretHash: string;
+  policyHash: string;
+  signature: string;
+  signatureType: string;
+  signatureMessage: string;
+  signatureTimestamp: number;
+  signerAddress?: string;
+  scopes: string[];
+  allowedIdentityTypes: string[];
+  allowedEmailDomains: string[];
+  requireKyc: boolean;
+  requireTaxProfile: boolean;
+  maxUses?: number;
+  expiresAt?: string;
+  redirectUri?: string;
+  state?: string;
+  stateParams?: OAuthInviteStateParams;
+  metadata: {
+    version: "1";
+    encoding: "PVIUM_OPEN_ORGANIZATION_INVITE_V1";
+  };
+}
+
+export interface OpenOrganizationInviteCommitResult {
+  raw: unknown;
+  invite: AppInviteRecord | null;
+  inviteLink?: string;
+}
+
 const normalizeScopes = (scopes: string[]): string[] => {
   return Array.from(
     new Set(scopes.map((scope) => scope.trim()).filter(Boolean)),
@@ -276,6 +382,20 @@ const getResponseItems = (response: unknown): unknown[] => {
 
   return [];
 };
+
+const sha256 = (value: string): string => crypto.SHA256(value).toString();
+
+const normalizeOpenInviteIdentityTypes = (identityTypes: string[] = []) =>
+  Array.from(
+    new Set(identityTypes.map((type) => type.trim()).filter(Boolean)),
+  ).sort((a, b) => a.localeCompare(b));
+
+const normalizeOpenInviteEmailDomains = (domains: string[] = []) =>
+  Array.from(
+    new Set(
+      domains.map((domain) => domain.trim().toLowerCase()).filter(Boolean),
+    ),
+  ).sort((a, b) => a.localeCompare(b));
 
 export class PviumInviteService {
   constructor(
@@ -484,7 +604,29 @@ export class PviumInviteService {
     });
 
     const body = await this.http.parseResponseBody<unknown>(response);
-    const invites = getResponseItems(body) as AppInviteRecord[];
+    const inviteSecretByNonce = new Map(
+      bundle.invites.map((invite) => [invite.inviteNonce, invite.inviteSecret]),
+    );
+    const invites = (getResponseItems(body) as AppInviteRecord[]).map(
+      (invite) => {
+        const inviteId = String(invite.id || invite._id || "");
+        const inviteSecret =
+          typeof invite.inviteNonce === "string"
+            ? inviteSecretByNonce.get(invite.inviteNonce)
+            : undefined;
+
+        if (!inviteId || !inviteSecret) return invite;
+
+        return {
+          ...invite,
+          inviteLink: this.generateShortInviteLink({
+            consentHost: bundle.consentHost,
+            inviteId,
+            inviteSecret,
+          }),
+        };
+      },
+    );
     const requestedNonces = new Set(
       bundle.invites.map((invite) => invite.inviteNonce),
     );
@@ -561,6 +703,172 @@ export class PviumInviteService {
   ): Promise<unknown> {
     const bundle = await this.createSignedBundle(input, signer);
     return this.commitBundle(bundle, options);
+  }
+
+  createOpenOrganizationInvite(
+    input: OpenOrganizationInviteInput = {},
+  ): OpenOrganizationInviteDraft {
+    const clientId = this.requireClientId();
+    const consentHost = this.requireConsentHost();
+    const createdAt = input.createdAt ?? Math.floor(Date.now() / 1000);
+
+    return {
+      clientId,
+      consentHost,
+      label: input.label,
+      scopes: normalizeScopes(input.scopes ?? defaultScopesForChain()),
+      allowedIdentityTypes: normalizeOpenInviteIdentityTypes(
+        input.allowedIdentityTypes ?? [],
+      ),
+      allowedEmailDomains: normalizeOpenInviteEmailDomains(
+        input.allowedEmailDomains ?? [],
+      ),
+      requireKyc: !!input.requireKyc,
+      requireTaxProfile: !!input.requireTaxProfile,
+      maxUses: input.maxUses,
+      expiresAt: input.expiresAt
+        ? new Date(input.expiresAt).toISOString()
+        : undefined,
+      redirectUri: input.redirectUri,
+      state: input.state,
+      stateParams: input.stateParams,
+      createdAt,
+      inviteNonce: input.inviteNonce || createInviteNonce(),
+      inviteSecret: input.inviteSecret || createInviteSecret(),
+    };
+  }
+
+  async signOpenOrganizationInvite(
+    draft: OpenOrganizationInviteDraft,
+    signer: OAuthInviteSigner,
+  ): Promise<SignedOpenOrganizationInvite> {
+    const policy = this.buildOpenOrganizationInvitePolicy(draft);
+    const signatureMessage =
+      this.buildOpenOrganizationInvitePolicyMessage(policy);
+    const signature = await this.signRootMessage(signatureMessage, signer);
+
+    return {
+      clientId: draft.clientId,
+      consentHost: draft.consentHost,
+      label: draft.label,
+      inviteNonce: draft.inviteNonce,
+      inviteSecret: draft.inviteSecret,
+      secretHash: sha256(draft.inviteSecret),
+      policyHash: sha256(JSON.stringify(policy)),
+      signature: signature.signature,
+      signatureType: signature.signatureType,
+      signatureMessage,
+      signatureTimestamp: draft.createdAt,
+      signerAddress: signature.signerAddress,
+      scopes: policy.scopes,
+      allowedIdentityTypes: policy.allowedIdentityTypes,
+      allowedEmailDomains: policy.allowedEmailDomains,
+      requireKyc: policy.requireKyc,
+      requireTaxProfile: policy.requireTaxProfile,
+      maxUses: policy.maxUses > 0 ? policy.maxUses : undefined,
+      expiresAt: policy.expiresAt || undefined,
+      redirectUri: draft.redirectUri,
+      state: draft.state,
+      stateParams: draft.stateParams,
+      metadata: {
+        version: "1",
+        encoding: "PVIUM_OPEN_ORGANIZATION_INVITE_V1",
+      },
+    };
+  }
+
+  async commitOpenOrganizationInvite(
+    invite: SignedOpenOrganizationInvite,
+    options?: RequestOptions,
+  ): Promise<OpenOrganizationInviteCommitResult> {
+    const { inviteSecret, consentHost, redirectUri, state, stateParams, ...body } =
+      invite;
+    const response = await this.http.request({
+      method: "POST",
+      path: `/v1/client-apps/${encodeURIComponent(invite.clientId)}/open-invites`,
+      body,
+      options,
+    });
+
+    const raw = await this.http.parseResponseBody<unknown>(response);
+    const record = this.getResponseValue(raw) as AppInviteRecord | null;
+    const inviteId = String(record?.id || record?._id || "");
+    const inviteLink = inviteId
+      ? this.generateOpenOrganizationInviteLink({
+          consentHost,
+          clientId: invite.clientId,
+          inviteId,
+          inviteSecret,
+          scopes: invite.scopes,
+          redirectUri,
+          state: buildInviteState({ state, stateParams }),
+        })
+      : undefined;
+
+    return {
+      raw,
+      invite: record ? { ...record, inviteLink } : null,
+      inviteLink,
+    };
+  }
+
+  async createSignedOpenOrganizationInvite(
+    input: OpenOrganizationInviteInput,
+    signer: OAuthInviteSigner,
+  ): Promise<SignedOpenOrganizationInvite> {
+    return this.signOpenOrganizationInvite(
+      this.createOpenOrganizationInvite(input),
+      signer,
+    );
+  }
+
+  async createSignedAndCommitOpenOrganizationInvite(
+    input: OpenOrganizationInviteInput,
+    signer: OAuthInviteSigner,
+    options?: RequestOptions,
+  ): Promise<OpenOrganizationInviteCommitResult> {
+    const invite = await this.createSignedOpenOrganizationInvite(input, signer);
+    return this.commitOpenOrganizationInvite(invite, options);
+  }
+
+  private buildOpenOrganizationInvitePolicy(
+    draft: OpenOrganizationInviteDraft,
+  ) {
+    return {
+      appClientId: draft.clientId,
+      allowedEmailDomains: normalizeOpenInviteEmailDomains(
+        draft.allowedEmailDomains,
+      ),
+      allowedIdentityTypes: normalizeOpenInviteIdentityTypes(
+        draft.allowedIdentityTypes,
+      ),
+      createdAt: Number(draft.createdAt || 0),
+      expiresAt: draft.expiresAt ? new Date(draft.expiresAt).toISOString() : "",
+      inviteNonce: draft.inviteNonce,
+      maxUses:
+        draft.maxUses === undefined || draft.maxUses === null
+          ? 0
+          : Number(draft.maxUses),
+      requireKyc: !!draft.requireKyc,
+      requireTaxProfile: !!draft.requireTaxProfile,
+      scopes: normalizeScopes(draft.scopes || []),
+    };
+  }
+
+  private buildOpenOrganizationInvitePolicyMessage(
+    policy: Record<string, unknown>,
+  ): string {
+    return ["PVIUM_OPEN_ORGANIZATION_INVITE_V1", JSON.stringify(policy)].join(
+      "\n",
+    );
+  }
+
+  private getResponseValue(response: unknown): unknown {
+    if (!response || typeof response !== "object") return null;
+    const record = response as Record<string, unknown>;
+    if (record.data !== undefined) return record.data;
+    if (record.value !== undefined) return record.value;
+    return response;
   }
 
   private async signMessageForMasterSecret(
@@ -710,6 +1018,43 @@ export class PviumInviteService {
     return authUrl.toString();
   }
 
+  private generateShortInviteLink(params: {
+    consentHost: string;
+    inviteId: string;
+    inviteSecret: string;
+  }): string {
+    const authUrl = new URL(
+      `/i/${encodeURIComponent(params.inviteId)}`,
+      normalizeConsentHost(params.consentHost),
+    );
+    authUrl.hash = `s=${encodeURIComponent(params.inviteSecret)}`;
+    return authUrl.toString();
+  }
+
+  private generateOpenOrganizationInviteLink(params: {
+    consentHost: string;
+    clientId: string;
+    inviteId: string;
+    inviteSecret: string;
+    scopes: string[];
+    redirectUri?: string;
+    state?: string;
+  }): string {
+    const authUrl = new URL(
+      `/o/${encodeURIComponent(params.inviteId)}`,
+      normalizeConsentHost(params.consentHost),
+    );
+    authUrl.searchParams.set("client_id", params.clientId);
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("scope", normalizeScopes(params.scopes).join(" "));
+    if (params.redirectUri) {
+      authUrl.searchParams.set("redirect_uri", params.redirectUri);
+    }
+    if (params.state) authUrl.searchParams.set("state", params.state);
+    authUrl.hash = `s=${encodeURIComponent(params.inviteSecret)}`;
+    return authUrl.toString();
+  }
+
   private generateGroupInviteLink(params: {
     consentHost: string;
     clientId: string;
@@ -719,6 +1064,15 @@ export class PviumInviteService {
     batchId?: string;
     masterSecret: string;
   }): string {
+    if (params.batchId && !params.redirectUri && !params.state) {
+      const authUrl = new URL(
+        `/b/${encodeURIComponent(params.batchId)}`,
+        normalizeConsentHost(params.consentHost),
+      );
+      authUrl.hash = `s=${encodeURIComponent(params.masterSecret)}`;
+      return authUrl.toString();
+    }
+
     const authUrl = new URL(
       "/oauth2/authorize",
       normalizeConsentHost(params.consentHost),
