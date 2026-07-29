@@ -454,10 +454,11 @@ Use these scope values in the `scopes` array when creating OAuth invite bundles.
 | User           | `read:user`                  | Read the authorized user basic profile (handle, email, name). |
 | User           | `read:business_profile`      | Read business profiles linked to the authorized user.         |
 | User           | `write:business_profile`     | Create and update business profiles.                          |
-| Wallets        | `read:ethereum_wallet`       | Read authorized Ethereum wallet details.                      |
+| Wallets        | `read:ethereum_wallet`       | Read authorized wallet details.                               |
 | Wallets        | `read:solana_wallet`         | Read authorized Solana wallet details.                        |
 | KYC and AML    | `read:kyc_status`            | Read KYC verification status.                                 |
 | KYC and AML    | `read:aml_status`            | Read AML screening status.                                    |
+| KYC and AML    | `read:legal_id`              | Read verified legal name, address, and country.               |
 | KYC and AML    | `read:kyc_legal_name`        | Read verified legal name details.                             |
 | KYC and AML    | `read:kyc_country`           | Read verified country details.                                |
 | KYC and AML    | `read:kyc_tax_id`            | Read verified tax ID details.                                 |

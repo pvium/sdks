@@ -79,10 +79,18 @@ test("creates batch invite bundle links with explicit batchId and custom state",
     fetchFn: async (url, init) => {
       requests.push({ url, init });
       const body = JSON.parse(init.body);
-      return new Response(JSON.stringify({ data: body.invites }), {
-        status: 201,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          data: body.invites.map((invite, index) => ({
+            ...invite,
+            _id: `invite_${index + 1}`,
+          })),
+        }),
+        {
+          status: 201,
+          headers: { "content-type": "application/json" },
+        },
+      );
     },
   });
 
@@ -128,6 +136,12 @@ test("creates batch invite bundle links with explicit batchId and custom state",
   assert.equal(
     committed.committedInvites[0].inviteNonce,
     signed.invites[0].inviteNonce,
+  );
+  const committedInviteUrl = new URL(committed.committedInvites[0].inviteLink);
+  assert.equal(committedInviteUrl.pathname, "/i/invite_1");
+  assert.equal(
+    committedInviteUrl.hash,
+    `#s=${encodeURIComponent(signed.invites[0].inviteSecret)}`,
   );
 });
 

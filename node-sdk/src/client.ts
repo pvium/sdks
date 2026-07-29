@@ -279,16 +279,16 @@ function getPviumApiErrorBodyMessage(body: unknown) {
 
   if (meta && typeof meta === "object") {
     const metaRecord = meta as Record<string, unknown>;
-    if (typeof metaRecord.developerMessage === "string") {
-      return metaRecord.developerMessage;
-    }
     if (typeof metaRecord.message === "string") {
       return metaRecord.message;
     }
+    if (typeof metaRecord.developerMessage === "string") {
+      return metaRecord.developerMessage;
+    }
   }
 
-  if (typeof record.developerMessage === "string") return record.developerMessage;
   if (typeof record.message === "string") return record.message;
+  if (typeof record.developerMessage === "string") return record.developerMessage;
   if (typeof record.error === "string") return record.error;
   return undefined;
 }
