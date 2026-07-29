@@ -20,7 +20,8 @@ import {
   type InviteIdentityType,
 } from "./invite-merkle";
 
-export type InviteSigningChain = "ethereum" | "solana";
+export type EvmInviteSigningChain = "base" | "bsc";
+export type InviteSigningChain = EvmInviteSigningChain | "solana";
 
 export type OAuthScope =
   | "read:user"
@@ -32,20 +33,8 @@ export type OAuthScope =
   | "write:business_profile"
   | "read:ethereum_wallet"
   | "read:solana_wallet"
-  | "read:kyc_status"
-  | "read:aml_status"
   | "read:legal_id"
-  /**
-   * @deprecated Use read:legal_id instead.
-   */
-  | "read:kyc"
   | "read:tax_certificates"
-  | "read:kyc_legal_name"
-  | "read:kyc_country"
-  | "read:kyc_tax_id"
-  | "read:kyc_dob"
-  | "read:kyc_address"
-  | "read:kyc_document_metadata"
   | "read:batch_payment"
   | "write:batch_payment"
   | "write:escrow_claim"
@@ -110,37 +99,40 @@ export interface InviteMessageSignature {
   signerAddress?: string;
 }
 
-export type OAuthInviteSigner =
-  | {
-      chain: "ethereum";
-      privateKey: string;
-    }
-  | {
-      chain: "ethereum";
-      signMessage: (
-        message: string,
-      ) => Promise<string | InviteMessageSignature>;
-      signMasterSecret?: (
-        message: string,
-      ) => Promise<string | InviteMessageSignature>;
-      signInviteRoot?: (
-        message: string,
-      ) => Promise<string | InviteMessageSignature>;
-      signerAddress?: string;
-    }
-  | {
-      chain: "solana";
-      signMessage: (
-        message: Uint8Array,
-      ) => Promise<Uint8Array | string | InviteMessageSignature>;
-      signMasterSecret?: (
-        message: Uint8Array,
-      ) => Promise<Uint8Array | string | InviteMessageSignature>;
-      signInviteRoot?: (
-        message: Uint8Array,
-      ) => Promise<Uint8Array | string | InviteMessageSignature>;
-      signerAddress?: string;
-    };
+type EvmOAuthInvitePrivateKeySigner = {
+  chain: EvmInviteSigningChain;
+  privateKey: string;
+};
+
+type EvmOAuthInviteCallbackSigner = {
+  chain: EvmInviteSigningChain;
+  signMessage: (message: string) => Promise<string | InviteMessageSignature>;
+  signMasterSecret?: (
+    message: string,
+  ) => Promise<string | InviteMessageSignature>;
+  signInviteRoot?: (message: string) => Promise<string | InviteMessageSignature>;
+  signerAddress?: string;
+};
+
+type SolanaOAuthInviteSigner = {
+  chain: "solana";
+  signMessage: (
+    message: Uint8Array,
+  ) => Promise<Uint8Array | string | InviteMessageSignature>;
+  signMasterSecret?: (
+    message: Uint8Array,
+  ) => Promise<Uint8Array | string | InviteMessageSignature>;
+  signInviteRoot?: (
+    message: Uint8Array,
+  ) => Promise<Uint8Array | string | InviteMessageSignature>;
+  signerAddress?: string;
+};
+
+type EvmOAuthInviteSigner =
+  | EvmOAuthInvitePrivateKeySigner
+  | EvmOAuthInviteCallbackSigner;
+
+export type OAuthInviteSigner = EvmOAuthInviteSigner | SolanaOAuthInviteSigner;
 
 export interface SignedOAuthInviteBundle {
   clientId: string;
@@ -312,6 +304,11 @@ const defaultScopesForChain = (chain?: string): string[] => {
 
   return normalizeScopes(scopes);
 };
+
+const isEvmOAuthInviteSigner = (
+  signer: OAuthInviteSigner,
+): signer is EvmOAuthInviteSigner =>
+  signer.chain === "base" || signer.chain === "bsc";
 
 const toHexString = (bytes: Uint8Array): string =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -875,16 +872,16 @@ export class PviumInviteService {
     message: string,
     signer: OAuthInviteSigner,
   ): Promise<{ signatureHex: string; signerAddress?: string }> {
-    if (signer.chain === "ethereum" && "privateKey" in signer) {
-      const wallet = new Wallet(signer.privateKey);
-      const signature = await wallet.signMessage(message);
-      return {
-        signatureHex: signature.replace(/^0x/, "").toLowerCase(),
-        signerAddress: wallet.address,
-      };
-    }
+    if (isEvmOAuthInviteSigner(signer)) {
+      if ("privateKey" in signer) {
+        const wallet = new Wallet(signer.privateKey);
+        const signature = await wallet.signMessage(message);
+        return {
+          signatureHex: signature.replace(/^0x/, "").toLowerCase(),
+          signerAddress: wallet.address,
+        };
+      }
 
-    if (signer.chain === "ethereum") {
       const result = await (signer.signMasterSecret ?? signer.signMessage)(
         message,
       );
@@ -896,6 +893,10 @@ export class PviumInviteService {
             ? signer.signerAddress
             : result.signerAddress,
       };
+    }
+
+    if (signer.chain !== "solana") {
+      throw new Error("OAuth invite signer chain must be base, bsc, or solana");
     }
 
     const encoded = new TextEncoder().encode(message);
@@ -928,16 +929,16 @@ export class PviumInviteService {
     signatureType: string;
     signerAddress?: string;
   }> {
-    if (signer.chain === "ethereum" && "privateKey" in signer) {
-      const wallet = new Wallet(signer.privateKey);
-      return {
-        signature: await wallet.signMessage(message),
-        signatureType: "evm-personal-sign",
-        signerAddress: wallet.address,
-      };
-    }
+    if (isEvmOAuthInviteSigner(signer)) {
+      if ("privateKey" in signer) {
+        const wallet = new Wallet(signer.privateKey);
+        return {
+          signature: await wallet.signMessage(message),
+          signatureType: "evm-personal-sign",
+          signerAddress: wallet.address,
+        };
+      }
 
-    if (signer.chain === "ethereum") {
       const result = await (signer.signInviteRoot ?? signer.signMessage)(
         message,
       );
@@ -954,6 +955,10 @@ export class PviumInviteService {
         signatureType: result.signatureType || "evm-personal-sign",
         signerAddress: result.signerAddress || signer.signerAddress,
       };
+    }
+
+    if (signer.chain !== "solana") {
+      throw new Error("OAuth invite signer chain must be base, bsc, or solana");
     }
 
     const encoded = new TextEncoder().encode(message);

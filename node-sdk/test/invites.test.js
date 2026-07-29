@@ -19,11 +19,11 @@ test("creates and signs an OAuth invite link with a dummy EVM key", async () => 
   const bundle = sdk.invites.createBundle({
     identities: [{ type: "email", value: "Test.User@example.com" }],
     scopes: ["read:ethereum_wallet", "read:user"],
-    chain: "ethereum",
+    chain: "base",
   });
 
   const signed = await sdk.invites.signBundle(bundle, {
-    chain: "ethereum",
+    chain: "base",
     privateKey: TEST_PRIVATE_KEY,
   });
 
@@ -97,7 +97,7 @@ test("creates batch invite bundle links with explicit batchId and custom state",
   const bundle = sdk.invites.createBundle({
     identities: [{ type: "email", value: "Batch.User@example.com" }],
     scopes: ["read:user", "read:ethereum_wallet"],
-    chain: "ethereum",
+    chain: "base",
     batchInvite: {
       batchId: "batch_123",
       stateParams: { source: "sdk-test" },
@@ -106,7 +106,7 @@ test("creates batch invite bundle links with explicit batchId and custom state",
   });
 
   const signed = await sdk.invites.signBundle(bundle, {
-    chain: "ethereum",
+    chain: "base",
     privateKey: TEST_PRIVATE_KEY,
   });
 
@@ -175,10 +175,10 @@ test("commitBundle detects returned accepted invites with different nonces", asy
     {
       identities: [{ type: "github", value: "feminefa" }],
       scopes: ["read:user"],
-      chain: "ethereum",
+      chain: "base",
     },
     {
-      chain: "ethereum",
+      chain: "base",
       privateKey: TEST_PRIVATE_KEY,
     },
   );
@@ -206,11 +206,11 @@ test("supports separate master-secret and invite-root signers", async () => {
   const bundle = sdk.invites.createBundle({
     identities: [{ type: "email", value: "Split.Signer@example.com" }],
     scopes: ["read:user", "read:ethereum_wallet"],
-    chain: "ethereum",
+    chain: "base",
   });
 
   const signed = await sdk.invites.signBundle(bundle, {
-    chain: "ethereum",
+    chain: "base",
     signerAddress: wallet.address,
     signMessage: async () => {
       throw new Error("fallback signMessage should not be called");
