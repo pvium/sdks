@@ -21,6 +21,7 @@ from ...crypto.invite_merkle import (
     deriveInviteSecret,
     deriveMasterSecret,
     generateBatchInviteMerkleDataV2,
+    normalizeOrgReferenceId,
     normalizeIdentityValue,
     validateIdentityValue,
 )
@@ -39,6 +40,10 @@ def _default_scopes_for_chain(chain: Optional[str]) -> List[str]:
     elif chain_lower:
         scopes.append("read:ethereum_wallet")
     return _normalize_scopes(scopes)
+
+
+def _is_evm_invite_chain(chain: Optional[str]) -> bool:
+    return chain in {"base", "bsc", "ethereum"}
 
 
 def _to_iso(seconds: int) -> str:
@@ -146,6 +151,8 @@ class PviumInviteService:
             "redirectUri": input.get("redirectUri"),
             "createdAt": input.get("createdAt"),
             "rootNonce": input.get("rootNonce"),
+            "signingKey": input.get("signingKey"),
+            "orgReferenceId": normalizeOrgReferenceId(input.get("orgReferenceId")),
         }
 
     def signBundle(self, bundle: Dict[str, Any], signer: Dict[str, Any]) -> Dict[str, Any]:
@@ -181,6 +188,8 @@ class PviumInviteService:
                 "scopes": scopes,
                 "createdAt": created_at,
                 "rootNonce": root_nonce,
+                "signingKey": bundle.get("signingKey"),
+                "orgReferenceId": bundle.get("orgReferenceId"),
                 "invites": invite_entries,
             }
         )
@@ -212,7 +221,7 @@ class PviumInviteService:
                     "identityValue": invite["identityValue"],
                     "identityCommitment": invite["identityCommitment"],
                     "secretHash": invite["secretHash"],
-                    "leafVersion": merkle["version"],
+                    "leafVersion": "2",
                     "inviteNonce": invite["inviteNonce"],
                     "inviteSecret": invite["inviteSecret"],
                     "inviteLink": invite_link,
@@ -236,6 +245,28 @@ class PviumInviteService:
             }
         )
 
+        root = {
+            "root": merkle["root"],
+            "nonce": merkle["rootNonce"],
+            "signature": root_signature["signature"],
+            "signatureType": root_signature["signatureType"],
+            "scopes": merkle["scopes"],
+            "signingKey": merkle.get("signingKey"),
+            "signingKeyType": merkle.get("signingKeyType"),
+            "orgReferenceId": merkle.get("orgReferenceId"),
+            "derivedOrgClientId": merkle.get("derivedOrgClientId"),
+            "signatureMessage": merkle["signatureMessage"],
+            "signatureTimestamp": merkle["createdAt"],
+            "signerAddress": root_signature.get("signerAddress"),
+            "inviteCount": merkle["inviteCount"],
+            "expiresAt": _to_iso(merkle["expiresAt"]) if merkle.get("expiresAt") else None,
+            "metadata": {
+                "version": merkle["version"],
+                "leafEncoding": "PVIUM_INVITE_LEAF_V2",
+                "signingChain": signing_chain,
+            },
+        }
+
         return {
             "clientId": bundle["clientId"],
             "consentHost": bundle["consentHost"],
@@ -244,23 +275,7 @@ class PviumInviteService:
             "scopes": merkle["scopes"],
             "chain": bundle.get("chain"),
             "masterSecret": master_secret,
-            "root": {
-                "root": merkle["root"],
-                "nonce": merkle["rootNonce"],
-                "signature": root_signature["signature"],
-                "signatureType": root_signature["signatureType"],
-                "scopes": merkle["scopes"],
-                "signatureMessage": merkle["signatureMessage"],
-                "signatureTimestamp": merkle["createdAt"],
-                "signerAddress": root_signature.get("signerAddress"),
-                "inviteCount": merkle["inviteCount"],
-                "expiresAt": _to_iso(merkle["expiresAt"]) if merkle.get("expiresAt") else None,
-                "metadata": {
-                    "version": merkle["version"],
-                    "leafEncoding": "PVIUM_INVITE_LEAF_V2",
-                    "signingChain": signing_chain,
-                },
-            },
+            "root": {key: value for key, value in root.items() if value is not None},
             "invites": invites,
             "inviteLinks": [invite["inviteLink"] for invite in invites],
             "groupInviteLink": group_invite_link,
@@ -272,7 +287,7 @@ class PviumInviteService:
         path = (
             f"/v1/batch-payments/{batch_id}/invites"
             if batch_id
-            else f"/v1/client-apps/{bundle['clientId']}/invites"
+            else f"/v1/client-apps/{(options or {}).get('commitClientAppId') or bundle['clientId']}/invites"
         )
 
         response = self.http.request(
@@ -416,7 +431,7 @@ class PviumInviteService:
         }
 
     def _sign_open_invite_message(self, message: str, signer: Dict[str, Any]) -> Dict[str, Any]:
-        is_evm = isinstance(signer, dict) and signer.get("chain") in ("base", "bsc")
+        is_evm = isinstance(signer, dict) and _is_evm_invite_chain(signer.get("chain"))
         if is_evm:
             if signer.get("privateKey"):
                 account = Account.from_key(signer["privateKey"])
@@ -472,15 +487,15 @@ class PviumInviteService:
 
     def _sign_message_for_master_secret(self, message: str, signer: Dict[str, Any]) -> Dict[str, Any]:
         chain = signer.get("chain")
-        if chain == "ethereum" and signer.get("privateKey"):
+        if _is_evm_invite_chain(chain) and signer.get("privateKey"):
             account = Account.from_key(signer["privateKey"])
             signature = account.sign_message(encode_defunct(text=message)).signature.hex()
             return {"signatureHex": signature.replace("0x", "").lower(), "signerAddress": account.address}
 
-        if chain == "ethereum":
+        if _is_evm_invite_chain(chain):
             fn = signer.get("signMasterSecret") or signer.get("signMessage")
             if not callable(fn):
-                raise RuntimeError("Ethereum signer requires signMessage(message)")
+                raise RuntimeError("EVM signer requires signMessage(message)")
             result = fn(message)
             if isinstance(result, dict):
                 signature = result["signature"]
@@ -515,7 +530,7 @@ class PviumInviteService:
 
     def _sign_root_message(self, message: str, signer: Dict[str, Any]) -> Dict[str, Any]:
         chain = signer.get("chain")
-        if chain == "ethereum" and signer.get("privateKey"):
+        if _is_evm_invite_chain(chain) and signer.get("privateKey"):
             account = Account.from_key(signer["privateKey"])
             return {
                 "signature": _ensure_0x(account.sign_message(encode_defunct(text=message)).signature.hex()),
@@ -523,10 +538,10 @@ class PviumInviteService:
                 "signerAddress": account.address,
             }
 
-        if chain == "ethereum":
+        if _is_evm_invite_chain(chain):
             fn = signer.get("signInviteRoot") or signer.get("signMessage")
             if not callable(fn):
-                raise RuntimeError("Ethereum signer requires signMessage(message)")
+                raise RuntimeError("EVM signer requires signMessage(message)")
             result = fn(message)
             if isinstance(result, dict):
                 return {

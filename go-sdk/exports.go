@@ -63,6 +63,7 @@ const (
 )
 
 type InviteIdentity = models.InviteIdentity
+type InviteSigningKeyRequest = models.InviteSigningKeyRequest
 type OAuthInviteBatchOptions = models.OAuthInviteBatchOptions
 type OAuthInviteBundleInput = models.OAuthInviteBundleInput
 type OAuthInviteSigner = models.OAuthInviteSigner
@@ -165,6 +166,11 @@ type BatchInviteMerkleInputV2 = pvcrypto.BatchInviteMerkleInputV2
 type BatchInviteMerkleInputInviteV2 = pvcrypto.BatchInviteMerkleInputInviteV2
 type BatchInviteProofVerificationInputV2 = pvcrypto.BatchInviteProofVerificationInputV2
 type BatchInviteProofVerificationResultV2 = pvcrypto.BatchInviteProofVerificationResultV2
+
+const (
+	DerivedOrgClientIDDomainV2 = pvcrypto.DerivedOrgClientIDDomainV2
+	DerivedOrgClientIDPrefix   = pvcrypto.DerivedOrgClientIDPrefix
+)
 
 type HTTPClient = transport.HTTPClient
 type EndpointsService = services.EndpointsService
@@ -276,6 +282,12 @@ func ValidateIdentityValue(identityType InviteIdentityType, value string) error 
 }
 func DetectInviteIdentityType(value string) InviteIdentityType {
 	return pvcrypto.DetectInviteIdentityType(value)
+}
+func NormalizeOrgReferenceID(referenceID string) (string, error) {
+	return pvcrypto.NormalizeOrgReferenceID(referenceID)
+}
+func DeriveOrgClientID(inviterClientID, referenceID string) (string, error) {
+	return pvcrypto.DeriveOrgClientID(inviterClientID, referenceID)
 }
 func GenerateBatchInviteMerkleDataV2(input BatchInviteMerkleInputV2) (BatchInviteMerkleData, error) {
 	return pvcrypto.GenerateBatchInviteMerkleDataV2(input)

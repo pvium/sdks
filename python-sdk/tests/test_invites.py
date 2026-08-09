@@ -4,7 +4,7 @@ from urllib.parse import parse_qs, urlparse
 from eth_account import Account
 from eth_account.messages import encode_defunct
 
-from pvium_sdk import PviumSdk, PviumSdkConfig, generateBatchInviteMerkleDataV2
+from pvium_sdk import PviumSdk, PviumSdkConfig, deriveOrgClientId, generateBatchInviteMerkleDataV2, normalizeOrgReferenceId
 
 
 TEST_PRIVATE_KEY = "0x59c6995e998f97a5a0044976f0d7f3f6f8f53f6a2046baf4f01cb4f1f6bcb58f"
@@ -158,6 +158,109 @@ def test_supports_separate_master_secret_and_invite_root_signers():
     assert signed["root"]["signerAddress"] == account.address
     recovered = Account.recover_message(encode_defunct(text=signed["root"]["signatureMessage"]), signature=signed["root"]["signature"])
     assert recovered == account.address
+
+
+def test_bundle_with_org_reference_id_signs_v4_root():
+    sdk = PviumSdk.init(
+        PviumSdkConfig(
+            baseUrl="http://localhost:4005/v1",
+            consentHost="http://localhost:3000",
+            clientId="app_test",
+            apiKey="pk_test_dummy",
+        )
+    )
+
+    bundle = sdk.invites.createBundle(
+        {
+            "identities": [{"type": "github", "value": "octocat"}],
+            "scopes": ["read:user", "read:github"],
+            "chain": "base",
+            "signingKey": {
+                "publicKey": "0x00000000000000000000000000000000000000AA",
+                "keyType": "ethereum",
+            },
+            "orgReferenceId": "maintainer-ref-1",
+        }
+    )
+    signed = sdk.invites.signBundle(bundle, {"chain": "base", "privateKey": TEST_PRIVATE_KEY})
+
+    assert signed["root"]["metadata"]["version"] == "4"
+    assert signed["root"]["orgReferenceId"] == "maintainer-ref-1"
+    assert signed["root"]["derivedOrgClientId"] == deriveOrgClientId("app_test", "maintainer-ref-1")
+    assert signed["root"]["signingKey"] == "0x00000000000000000000000000000000000000aa"
+    assert signed["root"]["signingKeyType"] == "ethereum"
+
+    lines = signed["root"]["signatureMessage"].split("\n")
+    assert lines[0] == "PVIUM_INVITE_ROOT_V4"
+    assert "version=4" in lines
+    assert "orgReferenceId=maintainer-ref-1" in lines
+    assert "signingKey=0x00000000000000000000000000000000000000aa" in lines
+    assert signed["invites"][0]["leafVersion"] == "2"
+
+
+def test_signing_key_only_emits_v3_and_plain_bundle_keeps_v2():
+    sdk = PviumSdk.init(
+        PviumSdkConfig(
+            baseUrl="http://localhost:4005/v1",
+            consentHost="http://localhost:3000",
+            clientId="app_test",
+            apiKey="pk_test_dummy",
+        )
+    )
+
+    with_key = sdk.invites.signBundle(
+        sdk.invites.createBundle(
+            {
+                "identities": [{"type": "github", "value": "octocat"}],
+                "scopes": ["read:user"],
+                "chain": "base",
+                "signingKey": {
+                    "publicKey": "0x00000000000000000000000000000000000000aa",
+                    "keyType": "ethereum",
+                },
+            }
+        ),
+        {"chain": "base", "privateKey": TEST_PRIVATE_KEY},
+    )
+    assert with_key["root"]["metadata"]["version"] == "3"
+    assert with_key["root"]["signatureMessage"].startswith("PVIUM_INVITE_ROOT_V3")
+
+    plain = sdk.invites.signBundle(
+        sdk.invites.createBundle(
+            {
+                "identities": [{"type": "github", "value": "octocat"}],
+                "scopes": ["read:user"],
+                "chain": "base",
+            }
+        ),
+        {"chain": "base", "privateKey": TEST_PRIVATE_KEY},
+    )
+    assert plain["root"]["metadata"]["version"] == "2"
+    assert plain["root"]["signatureMessage"].startswith("PVIUM_INVITE_ROOT_V2")
+
+
+def test_create_bundle_rejects_malformed_org_reference_id():
+    sdk = PviumSdk.init(
+        PviumSdkConfig(
+            baseUrl="http://localhost:4005/v1",
+            consentHost="http://localhost:3000",
+            clientId="app_test",
+            apiKey="pk_test_dummy",
+        )
+    )
+    assert normalizeOrgReferenceId(" ref_1 ") == "ref_1"
+    try:
+        sdk.invites.createBundle(
+            {
+                "identities": [{"type": "github", "value": "octocat"}],
+                "scopes": ["read:user"],
+                "chain": "base",
+                "orgReferenceId": "not valid!",
+            }
+        )
+        raise AssertionError("expected orgReferenceId validation error")
+    except RuntimeError as exc:
+        assert "orgReferenceId" in str(exc)
 
 
 def test_invite_merkle_promotes_odd_leaf_like_node():

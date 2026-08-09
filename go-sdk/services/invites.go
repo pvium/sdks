@@ -54,6 +54,10 @@ func (s *InviteService) CreateBundle(input models.OAuthInviteBundleInput) (model
 			return models.OAuthInviteBundleDraft{}, fmt.Errorf("invalid invite identity (%s=%s): %w", identity.Type, identity.Value, err)
 		}
 	}
+	orgReferenceID, err := pvcrypto.NormalizeOrgReferenceID(input.OrgReferenceID)
+	if err != nil {
+		return models.OAuthInviteBundleDraft{}, err
+	}
 
 	stateParams := map[string]any{}
 	if input.BatchInvite != nil {
@@ -73,18 +77,20 @@ func (s *InviteService) CreateBundle(input models.OAuthInviteBundleInput) (model
 	}
 
 	return models.OAuthInviteBundleDraft{
-		ClientID:    cfg.ClientID,
-		ConsentHost: strings.TrimRight(cfg.ConsentHost, "/"),
-		Identities:  input.Identities,
-		Scopes:      normalizeScopes(input.Scopes, input.Chain),
-		BatchID:     batchID,
-		BatchInvite: batchInvite,
-		Chain:       input.Chain,
-		State:       input.State,
-		StateParams: stateParams,
-		RedirectURI: input.RedirectURI,
-		CreatedAt:   input.CreatedAt,
-		RootNonce:   input.RootNonce,
+		ClientID:       cfg.ClientID,
+		ConsentHost:    strings.TrimRight(cfg.ConsentHost, "/"),
+		Identities:     input.Identities,
+		Scopes:         normalizeScopes(input.Scopes, input.Chain),
+		BatchID:        batchID,
+		BatchInvite:    batchInvite,
+		Chain:          input.Chain,
+		State:          input.State,
+		StateParams:    stateParams,
+		RedirectURI:    input.RedirectURI,
+		CreatedAt:      input.CreatedAt,
+		RootNonce:      input.RootNonce,
+		SigningKey:     input.SigningKey,
+		OrgReferenceID: orgReferenceID,
 	}, nil
 }
 
@@ -112,15 +118,31 @@ func (s *InviteService) SignBundle(bundle models.OAuthInviteBundleDraft, signer 
 	masterSecret := pvcrypto.DeriveMasterSecret(masterSignature)
 
 	merkle, err := generateInviteMerkle(models.BatchInviteMerkleData{
-		AppClientID: bundle.ClientID,
-		BatchID:     batchID,
-		Chain:       bundle.Chain,
-		Scopes:      scopes,
-		RootNonce:   rootNonce,
-		CreatedAt:   createdAt,
+		AppClientID:    bundle.ClientID,
+		BatchID:        batchID,
+		Chain:          bundle.Chain,
+		Scopes:         scopes,
+		RootNonce:      rootNonce,
+		CreatedAt:      createdAt,
+		OrgReferenceID: bundle.OrgReferenceID,
 	}, bundle.Identities, masterSecret)
 	if err != nil {
 		return models.SignedOAuthInviteBundle{}, err
+	}
+	merkle.SigningKey, merkle.SigningKeyType, err = pvcrypto.NormalizeSigningKeyRequest(bundle.SigningKey)
+	if err != nil {
+		return models.SignedOAuthInviteBundle{}, err
+	}
+	if merkle.OrgReferenceID != "" {
+		merkle.DerivedOrgClientID, err = pvcrypto.DeriveOrgClientID(bundle.ClientID, merkle.OrgReferenceID)
+		if err != nil {
+			return models.SignedOAuthInviteBundle{}, err
+		}
+		merkle.Version = "4"
+		merkle.SignatureMessage = buildRootMessageV4(merkle.AppClientID, merkle.BatchID, merkle.Root, merkle.RootNonce, merkle.Scopes, merkle.SigningKey, merkle.SigningKeyType, merkle.OrgReferenceID, merkle.CreatedAt, merkle.ExpiresAt)
+	} else if merkle.SigningKey != "" {
+		merkle.Version = "3"
+		merkle.SignatureMessage = buildRootMessageV3(merkle.AppClientID, merkle.BatchID, merkle.Root, merkle.RootNonce, merkle.Scopes, merkle.SigningKey, merkle.SigningKeyType, merkle.CreatedAt, merkle.ExpiresAt)
 	}
 
 	rootSignature, signerAddress, err := signInviteMessage(signer, merkle.SignatureMessage, false)
@@ -157,13 +179,17 @@ func (s *InviteService) SignBundle(bundle models.OAuthInviteBundleDraft, signer 
 			Signature:          rootSignature,
 			SignatureType:      signatureType,
 			Scopes:             merkle.Scopes,
+			SigningKey:         merkle.SigningKey,
+			SigningKeyType:     merkle.SigningKeyType,
+			OrgReferenceID:     merkle.OrgReferenceID,
+			DerivedOrgClientID: merkle.DerivedOrgClientID,
 			SignatureMessage:   merkle.SignatureMessage,
 			SignatureTimestamp: merkle.CreatedAt,
 			SignerAddress:      signerAddress,
 			InviteCount:        merkle.InviteCount,
 			ExpiresAt:          time.Unix(merkle.ExpiresAt, 0).UTC().Format(time.RFC3339),
 			Metadata: map[string]any{
-				"version":      "2",
+				"version":      merkle.Version,
 				"leafEncoding": "PVIUM_INVITE_LEAF_V2",
 				"signingChain": firstNonEmpty(signer.Chain, bundle.Chain),
 			},
@@ -183,6 +209,8 @@ func (s *InviteService) CommitBundle(ctx context.Context, bundle models.SignedOA
 	path := fmt.Sprintf("/client-apps/%s/invites", bundle.ClientID)
 	if batchID != "" {
 		path = fmt.Sprintf("/batch-payments/%s/invites", batchID)
+	} else if options != nil && options.CommitClientAppID != "" {
+		path = fmt.Sprintf("/client-apps/%s/invites", options.CommitClientAppID)
 	}
 	invites := make([]map[string]any, 0, len(bundle.Invites))
 	for _, invite := range bundle.Invites {
@@ -804,6 +832,39 @@ func buildRootMessage(appClientID, batchID, root, rootNonce string, scopes []str
 		"root=" + root,
 		"rootNonce=" + rootNonce,
 		"scopes=" + strings.Join(scopes, " "),
+		fmt.Sprintf("createdAt=%d", createdAt),
+		fmt.Sprintf("expiresAt=%d", expiresAt),
+	}, "\n")
+}
+
+func buildRootMessageV3(appClientID, batchID, root, rootNonce string, scopes []string, signingKey, signingKeyType string, createdAt, expiresAt int64) string {
+	return strings.Join([]string{
+		"PVIUM_INVITE_ROOT_V3",
+		"version=3",
+		"appClientId=" + appClientID,
+		"batchId=" + batchID,
+		"root=" + root,
+		"rootNonce=" + rootNonce,
+		"scopes=" + strings.Join(scopes, " "),
+		"signingKey=" + signingKey,
+		"signingKeyType=" + signingKeyType,
+		fmt.Sprintf("createdAt=%d", createdAt),
+		fmt.Sprintf("expiresAt=%d", expiresAt),
+	}, "\n")
+}
+
+func buildRootMessageV4(appClientID, batchID, root, rootNonce string, scopes []string, signingKey, signingKeyType, orgReferenceID string, createdAt, expiresAt int64) string {
+	return strings.Join([]string{
+		"PVIUM_INVITE_ROOT_V4",
+		"version=4",
+		"appClientId=" + appClientID,
+		"batchId=" + batchID,
+		"root=" + root,
+		"rootNonce=" + rootNonce,
+		"scopes=" + strings.Join(scopes, " "),
+		"signingKey=" + signingKey,
+		"signingKeyType=" + signingKeyType,
+		"orgReferenceId=" + orgReferenceID,
 		fmt.Sprintf("createdAt=%d", createdAt),
 		fmt.Sprintf("expiresAt=%d", expiresAt),
 	}, "\n")

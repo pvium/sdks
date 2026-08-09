@@ -14,6 +14,8 @@ from eth_utils import keccak
 
 DEFAULT_INVITE_TTL_SECONDS = 7 * 24 * 60 * 60
 INVITE_SECRET_DOMAIN_V2 = "PVIUM_INVITE_SECRET_V2"
+DERIVED_ORG_CLIENT_ID_DOMAIN_V2 = "PVIUM_DERIVED_CLIENT_ID_V2"
+DERIVED_ORG_CLIENT_ID_PREFIX = "subcli_"
 
 SUPPORTED_INVITE_IDENTITY_TYPES = [
     "email",
@@ -31,6 +33,7 @@ EVM_ADDRESS_LOWER_RE = re.compile(r"^0x[0-9a-f]{40}$")
 SOLANA_ADDRESS_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 HANDLE_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,30}[a-z0-9])?$")
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+ORG_REFERENCE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 
 def _sha256(value: str) -> str:
@@ -86,6 +89,37 @@ def createInviteSecret() -> str:
 
 def buildSecretHash(invite_secret: str) -> str:
     return _sha256(invite_secret)
+
+
+def normalizeOrgReferenceId(reference_id: Optional[str] = None) -> Optional[str]:
+    if reference_id is None:
+        return None
+    normalized = str(reference_id).strip()
+    if not ORG_REFERENCE_ID_RE.match(normalized):
+        raise RuntimeError("orgReferenceId must be 1-128 characters of [A-Za-z0-9_-]")
+    return normalized
+
+
+def deriveOrgClientId(inviter_client_id: str, reference_id: str) -> str:
+    normalized_ref = normalizeOrgReferenceId(reference_id)
+    if not normalized_ref:
+        raise RuntimeError("referenceId is required to derive an org clientId")
+    digest = _sha256(f"{DERIVED_ORG_CLIENT_ID_DOMAIN_V2}:{inviter_client_id.strip()}:{normalized_ref}")
+    return f"{DERIVED_ORG_CLIENT_ID_PREFIX}{digest[:32]}"
+
+
+def normalizeSigningKeyRequest(signing_key: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, str]]:
+    if signing_key is None:
+        return None
+    public_key = str(signing_key.get("publicKey") or "").strip()
+    key_type = str(signing_key.get("keyType") or "").strip()
+    if not public_key or not key_type:
+        raise RuntimeError("signingKey requires both publicKey and keyType when provided")
+    if key_type == "ethereum":
+        if not EVM_ADDRESS_RE.match(public_key):
+            raise RuntimeError("signingKey.publicKey must be an EVM address for keyType ethereum")
+        public_key = public_key.lower()
+    return {"publicKey": public_key, "keyType": key_type}
 
 
 def buildInviteMasterSecretMessage(root_nonce: str) -> str:
@@ -195,6 +229,43 @@ def _build_root_message_v2(params: Dict[str, Any]) -> str:
             f"root={params['root']}",
             f"rootNonce={params['rootNonce']}",
             f"scopes={' '.join(params['scopes'])}",
+            f"createdAt={params['createdAt']}",
+            f"expiresAt={params['expiresAt']}",
+        ]
+    )
+
+
+def _build_root_message_v3(params: Dict[str, Any]) -> str:
+    return "\n".join(
+        [
+            "PVIUM_INVITE_ROOT_V3",
+            "version=3",
+            f"appClientId={params['appClientId']}",
+            f"batchId={params['batchId']}",
+            f"root={params['root']}",
+            f"rootNonce={params['rootNonce']}",
+            f"scopes={' '.join(params['scopes'])}",
+            f"signingKey={params['signingKey']}",
+            f"signingKeyType={params['signingKeyType']}",
+            f"createdAt={params['createdAt']}",
+            f"expiresAt={params['expiresAt']}",
+        ]
+    )
+
+
+def _build_root_message_v4(params: Dict[str, Any]) -> str:
+    return "\n".join(
+        [
+            "PVIUM_INVITE_ROOT_V4",
+            "version=4",
+            f"appClientId={params['appClientId']}",
+            f"batchId={params['batchId']}",
+            f"root={params['root']}",
+            f"rootNonce={params['rootNonce']}",
+            f"scopes={' '.join(params['scopes'])}",
+            f"signingKey={params['signingKey']}",
+            f"signingKeyType={params['signingKeyType']}",
+            f"orgReferenceId={params['orgReferenceId']}",
             f"createdAt={params['createdAt']}",
             f"expiresAt={params['expiresAt']}",
         ]
@@ -353,24 +424,42 @@ def generateBatchInviteMerkleDataV2(input: Dict[str, Any]) -> Dict[str, Any]:
         invite["proof"] = proofs[idx]
         invites_with_proofs.append(invite)
 
-    signature_message = _build_root_message_v2(
-        {
-            "appClientId": input["appClientId"],
-            "batchId": batch_id,
-            "root": root,
-            "rootNonce": root_nonce,
-            "scopes": scopes,
-            "createdAt": created_at,
-            "expiresAt": expires_at,
-        }
-    )
+    signing_key = normalizeSigningKeyRequest(input.get("signingKey"))
+    org_reference_id = normalizeOrgReferenceId(input.get("orgReferenceId"))
+    derived_org_client_id = deriveOrgClientId(input["appClientId"], org_reference_id) if org_reference_id else None
+    root_params = {
+        "appClientId": input["appClientId"],
+        "batchId": batch_id,
+        "root": root,
+        "rootNonce": root_nonce,
+        "scopes": scopes,
+        "signingKey": signing_key["publicKey"] if signing_key else "",
+        "signingKeyType": signing_key["keyType"] if signing_key else "",
+        "orgReferenceId": org_reference_id or "",
+        "createdAt": created_at,
+        "expiresAt": expires_at,
+    }
 
-    return {
-        "version": "2",
+    if org_reference_id:
+        version = "4"
+        signature_message = _build_root_message_v4(root_params)
+    elif signing_key:
+        version = "3"
+        signature_message = _build_root_message_v3(root_params)
+    else:
+        version = "2"
+        signature_message = _build_root_message_v2(root_params)
+
+    result = {
+        "version": version,
         "appClientId": input["appClientId"],
         "batchId": batch_id,
         "chain": input.get("chain"),
         "scopes": scopes,
+        "signingKey": signing_key["publicKey"] if signing_key else None,
+        "signingKeyType": signing_key["keyType"] if signing_key else None,
+        "orgReferenceId": org_reference_id,
+        "derivedOrgClientId": derived_org_client_id,
         "root": root,
         "rootNonce": root_nonce,
         "inviteCount": len(invites_with_proofs),
@@ -379,6 +468,7 @@ def generateBatchInviteMerkleDataV2(input: Dict[str, Any]) -> Dict[str, Any]:
         "signatureMessage": signature_message,
         "invites": invites_with_proofs,
     }
+    return {key: value for key, value in result.items() if value is not None}
 
 
 def verifyBatchInviteProofV2(input: Dict[str, Any]) -> Dict[str, Any]:
@@ -433,6 +523,12 @@ def verifyBatchInviteProofV2(input: Dict[str, Any]) -> Dict[str, Any]:
 
     if input.get("signatureMessage") and input["root"] not in str(input["signatureMessage"]):
         errors.append("Invite root signature message does not contain root")
+    if input.get("signingKey") and input.get("signatureMessage"):
+        signing_key = str(input["signingKey"]).strip()
+        if input.get("signingKeyType") == "ethereum":
+            signing_key = signing_key.lower()
+        if f"\nsigningKey={signing_key}\n" not in str(input["signatureMessage"]):
+            errors.append("Invite root signature message does not contain the requested signing key")
 
     return {
         "valid": len(errors) == 0,

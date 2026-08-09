@@ -17,10 +17,16 @@ import (
 )
 
 var (
-	emailRE      = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
-	evmAddressRE = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
-	solanaAddrRE = regexp.MustCompile(`^[1-9A-HJ-NP-Za-km-z]{32,44}$`)
-	handleRE     = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,30}[a-z0-9])?$`)
+	emailRE          = regexp.MustCompile(`^[^\s@]+@[^\s@]+\.[^\s@]+$`)
+	evmAddressRE     = regexp.MustCompile(`^0x[0-9a-fA-F]{40}$`)
+	solanaAddrRE     = regexp.MustCompile(`^[1-9A-HJ-NP-Za-km-z]{32,44}$`)
+	handleRE         = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]{0,30}[a-z0-9])?$`)
+	orgReferenceIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+)
+
+const (
+	DerivedOrgClientIDDomainV2 = "PVIUM_DERIVED_CLIENT_ID_V2"
+	DerivedOrgClientIDPrefix   = "subcli_"
 )
 
 func createRandomHex(n int) (string, error) {
@@ -76,6 +82,47 @@ func DeriveInviteSecret(masterSecret, inviteNonce string) string {
 
 func BuildInviteSecretHash(inviteSecret string) string {
 	return sha256Hex(inviteSecret)
+}
+
+func NormalizeOrgReferenceID(referenceID string) (string, error) {
+	normalized := strings.TrimSpace(referenceID)
+	if normalized == "" {
+		return "", nil
+	}
+	if !orgReferenceIDRE.MatchString(normalized) {
+		return "", errors.New("orgReferenceId must be 1-128 characters of [A-Za-z0-9_-]")
+	}
+	return normalized, nil
+}
+
+func DeriveOrgClientID(inviterClientID, referenceID string) (string, error) {
+	normalized, err := NormalizeOrgReferenceID(referenceID)
+	if err != nil {
+		return "", err
+	}
+	if normalized == "" {
+		return "", errors.New("referenceId is required to derive an org clientId")
+	}
+	digest := sha256Hex(strings.Join([]string{DerivedOrgClientIDDomainV2, strings.TrimSpace(inviterClientID), normalized}, ":"))
+	return DerivedOrgClientIDPrefix + digest[:32], nil
+}
+
+func NormalizeSigningKeyRequest(signingKey *models.InviteSigningKeyRequest) (string, string, error) {
+	if signingKey == nil {
+		return "", "", nil
+	}
+	publicKey := strings.TrimSpace(signingKey.PublicKey)
+	keyType := strings.TrimSpace(signingKey.KeyType)
+	if publicKey == "" || keyType == "" {
+		return "", "", errors.New("signingKey requires both publicKey and keyType when provided")
+	}
+	if keyType == "ethereum" {
+		if !evmAddressRE.MatchString(publicKey) {
+			return "", "", errors.New("signingKey.publicKey must be an EVM address for keyType ethereum")
+		}
+		publicKey = strings.ToLower(publicKey)
+	}
+	return publicKey, keyType, nil
 }
 
 func BuildInviteIdentityCommitment(identityType models.InviteIdentityType, value, inviteNonce string) string {
@@ -165,13 +212,15 @@ type BatchInviteMerkleInputInviteV2 struct {
 }
 
 type BatchInviteMerkleInputV2 struct {
-	AppClientID string                           `json:"appClientId"`
-	BatchID     string                           `json:"batchId,omitempty"`
-	Chain       string                           `json:"chain,omitempty"`
-	Scopes      []string                         `json:"scopes"`
-	Invites     []BatchInviteMerkleInputInviteV2 `json:"invites"`
-	CreatedAt   int64                            `json:"createdAt,omitempty"`
-	RootNonce   string                           `json:"rootNonce,omitempty"`
+	AppClientID    string                           `json:"appClientId"`
+	BatchID        string                           `json:"batchId,omitempty"`
+	Chain          string                           `json:"chain,omitempty"`
+	Scopes         []string                         `json:"scopes"`
+	SigningKey     *models.InviteSigningKeyRequest  `json:"signingKey,omitempty"`
+	OrgReferenceID string                           `json:"orgReferenceId,omitempty"`
+	Invites        []BatchInviteMerkleInputInviteV2 `json:"invites"`
+	CreatedAt      int64                            `json:"createdAt,omitempty"`
+	RootNonce      string                           `json:"rootNonce,omitempty"`
 }
 
 func GenerateBatchInviteMerkleDataV2(input BatchInviteMerkleInputV2) (models.BatchInviteMerkleData, error) {
@@ -248,20 +297,50 @@ func GenerateBatchInviteMerkleDataV2(input BatchInviteMerkleInputV2) (models.Bat
 	for i := range invites {
 		invites[i].Proof = merkleProofV2(levels, i)
 	}
+
+	signingKey, signingKeyType, err := NormalizeSigningKeyRequest(input.SigningKey)
+	if err != nil {
+		return models.BatchInviteMerkleData{}, err
+	}
+	orgReferenceID, err := NormalizeOrgReferenceID(input.OrgReferenceID)
+	if err != nil {
+		return models.BatchInviteMerkleData{}, err
+	}
+	derivedOrgClientID := ""
+	if orgReferenceID != "" {
+		derivedOrgClientID, err = DeriveOrgClientID(input.AppClientID, orgReferenceID)
+		if err != nil {
+			return models.BatchInviteMerkleData{}, err
+		}
+	}
+
+	version := "2"
 	signatureMessage := buildInviteRootMessageV2(input.AppClientID, input.BatchID, root, rootNonce, scopes, createdAt, expiresAt)
+	if orgReferenceID != "" {
+		version = "4"
+		signatureMessage = buildInviteRootMessageV4(input.AppClientID, input.BatchID, root, rootNonce, scopes, signingKey, signingKeyType, orgReferenceID, createdAt, expiresAt)
+	} else if signingKey != "" {
+		version = "3"
+		signatureMessage = buildInviteRootMessageV3(input.AppClientID, input.BatchID, root, rootNonce, scopes, signingKey, signingKeyType, createdAt, expiresAt)
+	}
+
 	return models.BatchInviteMerkleData{
-		Version:          "2",
-		AppClientID:      input.AppClientID,
-		BatchID:          input.BatchID,
-		Chain:            input.Chain,
-		Scopes:           scopes,
-		Root:             root,
-		RootNonce:        rootNonce,
-		InviteCount:      len(invites),
-		CreatedAt:        createdAt,
-		ExpiresAt:        expiresAt,
-		SignatureMessage: signatureMessage,
-		Invites:          invites,
+		Version:            version,
+		AppClientID:        input.AppClientID,
+		BatchID:            input.BatchID,
+		Chain:              input.Chain,
+		Scopes:             scopes,
+		SigningKey:         signingKey,
+		SigningKeyType:     signingKeyType,
+		OrgReferenceID:     orgReferenceID,
+		DerivedOrgClientID: derivedOrgClientID,
+		Root:               root,
+		RootNonce:          rootNonce,
+		InviteCount:        len(invites),
+		CreatedAt:          createdAt,
+		ExpiresAt:          expiresAt,
+		SignatureMessage:   signatureMessage,
+		Invites:            invites,
 	}, nil
 }
 
@@ -283,6 +362,8 @@ type BatchInviteProofVerificationInputV2 struct {
 	Signature           string                    `json:"signature,omitempty"`
 	SignatureType       string                    `json:"signatureType,omitempty"`
 	SignerAddress       string                    `json:"signerAddress,omitempty"`
+	SigningKey          string                    `json:"signingKey,omitempty"`
+	SigningKeyType      string                    `json:"signingKeyType,omitempty"`
 }
 
 type BatchInviteProofVerificationResultV2 struct {
@@ -336,6 +417,15 @@ func VerifyBatchInviteProofV2(input BatchInviteProofVerificationInputV2) BatchIn
 	}
 	if input.SignatureMessage != "" && !strings.Contains(input.SignatureMessage, input.Root) {
 		errs = append(errs, "Invite root signature message does not contain root")
+	}
+	if input.SigningKey != "" && input.SignatureMessage != "" {
+		signingKey := strings.TrimSpace(input.SigningKey)
+		if input.SigningKeyType == "ethereum" {
+			signingKey = strings.ToLower(signingKey)
+		}
+		if !strings.Contains(input.SignatureMessage, "\nsigningKey="+signingKey+"\n") {
+			errs = append(errs, "Invite root signature message does not contain the requested signing key")
+		}
 	}
 	return BatchInviteProofVerificationResultV2{
 		Valid:              len(errs) == 0,
@@ -436,6 +526,39 @@ func buildInviteRootMessageV2(appClientID, batchID, root, rootNonce string, scop
 		"root=" + root,
 		"rootNonce=" + rootNonce,
 		"scopes=" + strings.Join(scopes, " "),
+		fmt.Sprintf("createdAt=%d", createdAt),
+		fmt.Sprintf("expiresAt=%d", expiresAt),
+	}, "\n")
+}
+
+func buildInviteRootMessageV3(appClientID, batchID, root, rootNonce string, scopes []string, signingKey, signingKeyType string, createdAt, expiresAt int64) string {
+	return strings.Join([]string{
+		"PVIUM_INVITE_ROOT_V3",
+		"version=3",
+		"appClientId=" + appClientID,
+		"batchId=" + batchID,
+		"root=" + root,
+		"rootNonce=" + rootNonce,
+		"scopes=" + strings.Join(scopes, " "),
+		"signingKey=" + signingKey,
+		"signingKeyType=" + signingKeyType,
+		fmt.Sprintf("createdAt=%d", createdAt),
+		fmt.Sprintf("expiresAt=%d", expiresAt),
+	}, "\n")
+}
+
+func buildInviteRootMessageV4(appClientID, batchID, root, rootNonce string, scopes []string, signingKey, signingKeyType, orgReferenceID string, createdAt, expiresAt int64) string {
+	return strings.Join([]string{
+		"PVIUM_INVITE_ROOT_V4",
+		"version=4",
+		"appClientId=" + appClientID,
+		"batchId=" + batchID,
+		"root=" + root,
+		"rootNonce=" + rootNonce,
+		"scopes=" + strings.Join(scopes, " "),
+		"signingKey=" + signingKey,
+		"signingKeyType=" + signingKeyType,
+		"orgReferenceId=" + orgReferenceID,
 		fmt.Sprintf("createdAt=%d", createdAt),
 		fmt.Sprintf("expiresAt=%d", expiresAt),
 	}, "\n")

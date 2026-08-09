@@ -3,10 +3,11 @@ package models
 import "time"
 
 type RequestOptions struct {
-	AccessToken string
-	APIKey      string
-	Headers     map[string]string
-	SkipAPIKey  bool
+	AccessToken       string
+	APIKey            string
+	Headers           map[string]string
+	SkipAPIKey        bool
+	CommitClientAppID string
 }
 
 type APIMeta struct {
@@ -170,16 +171,24 @@ type OAuthInviteBatchOptions struct {
 }
 
 type OAuthInviteBundleInput struct {
-	Identities  []InviteIdentity         `json:"identities"`
-	Scopes      []string                 `json:"scopes,omitempty"`
-	Chain       string                   `json:"chain,omitempty"`
-	BatchID     string                   `json:"batchId,omitempty"`
-	CreatedAt   int64                    `json:"createdAt,omitempty"`
-	RootNonce   string                   `json:"rootNonce,omitempty"`
-	StateParams map[string]any           `json:"stateParams,omitempty"`
-	State       string                   `json:"state,omitempty"`
-	RedirectURI string                   `json:"redirectUri,omitempty"`
-	BatchInvite *OAuthInviteBatchOptions `json:"batchInvite,omitempty"`
+	Identities     []InviteIdentity         `json:"identities"`
+	Scopes         []string                 `json:"scopes,omitempty"`
+	Chain          string                   `json:"chain,omitempty"`
+	BatchID        string                   `json:"batchId,omitempty"`
+	CreatedAt      int64                    `json:"createdAt,omitempty"`
+	RootNonce      string                   `json:"rootNonce,omitempty"`
+	SigningKey     *InviteSigningKeyRequest `json:"signingKey,omitempty"`
+	OrgReferenceID string                   `json:"orgReferenceId,omitempty"`
+	StateParams    map[string]any           `json:"stateParams,omitempty"`
+	State          string                   `json:"state,omitempty"`
+	RedirectURI    string                   `json:"redirectUri,omitempty"`
+	BatchInvite    *OAuthInviteBatchOptions `json:"batchInvite,omitempty"`
+}
+
+type InviteSigningKeyRequest struct {
+	PublicKey string `json:"publicKey"`
+	KeyType   string `json:"keyType"`
+	Label     string `json:"label,omitempty"`
 }
 
 type OAuthInviteSigner struct {
@@ -192,18 +201,20 @@ type OAuthInviteSigner struct {
 }
 
 type OAuthInviteBundleDraft struct {
-	ClientID    string                   `json:"clientId"`
-	ConsentHost string                   `json:"consentHost"`
-	Identities  []InviteIdentity         `json:"identities"`
-	Scopes      []string                 `json:"scopes"`
-	BatchID     string                   `json:"batchId,omitempty"`
-	BatchInvite *OAuthInviteBatchOptions `json:"batchInvite,omitempty"`
-	Chain       string                   `json:"chain,omitempty"`
-	State       string                   `json:"state,omitempty"`
-	StateParams map[string]any           `json:"stateParams,omitempty"`
-	RedirectURI string                   `json:"redirectUri,omitempty"`
-	CreatedAt   int64                    `json:"createdAt,omitempty"`
-	RootNonce   string                   `json:"rootNonce,omitempty"`
+	ClientID       string                   `json:"clientId"`
+	ConsentHost    string                   `json:"consentHost"`
+	Identities     []InviteIdentity         `json:"identities"`
+	Scopes         []string                 `json:"scopes"`
+	BatchID        string                   `json:"batchId,omitempty"`
+	BatchInvite    *OAuthInviteBatchOptions `json:"batchInvite,omitempty"`
+	Chain          string                   `json:"chain,omitempty"`
+	State          string                   `json:"state,omitempty"`
+	StateParams    map[string]any           `json:"stateParams,omitempty"`
+	RedirectURI    string                   `json:"redirectUri,omitempty"`
+	CreatedAt      int64                    `json:"createdAt,omitempty"`
+	RootNonce      string                   `json:"rootNonce,omitempty"`
+	SigningKey     *InviteSigningKeyRequest `json:"signingKey,omitempty"`
+	OrgReferenceID string                   `json:"orgReferenceId,omitempty"`
 }
 
 type InviteRootSignature struct {
@@ -212,6 +223,10 @@ type InviteRootSignature struct {
 	Signature          string         `json:"signature"`
 	SignatureType      string         `json:"signatureType"`
 	Scopes             []string       `json:"scopes"`
+	SigningKey         string         `json:"signingKey,omitempty"`
+	SigningKeyType     string         `json:"signingKeyType,omitempty"`
+	OrgReferenceID     string         `json:"orgReferenceId,omitempty"`
+	DerivedOrgClientID string         `json:"derivedOrgClientId,omitempty"`
 	SignatureMessage   string         `json:"signatureMessage"`
 	SignatureTimestamp int64          `json:"signatureTimestamp"`
 	SignerAddress      string         `json:"signerAddress,omitempty"`
@@ -237,18 +252,22 @@ type SignedInvite struct {
 }
 
 type BatchInviteMerkleData struct {
-	Version          string         `json:"version"`
-	AppClientID      string         `json:"appClientId"`
-	BatchID          string         `json:"batchId"`
-	Chain            string         `json:"chain,omitempty"`
-	Scopes           []string       `json:"scopes"`
-	Root             string         `json:"root"`
-	RootNonce        string         `json:"rootNonce"`
-	InviteCount      int            `json:"inviteCount"`
-	CreatedAt        int64          `json:"createdAt"`
-	ExpiresAt        int64          `json:"expiresAt"`
-	SignatureMessage string         `json:"signatureMessage"`
-	Invites          []SignedInvite `json:"invites"`
+	Version            string         `json:"version"`
+	AppClientID        string         `json:"appClientId"`
+	BatchID            string         `json:"batchId"`
+	Chain              string         `json:"chain,omitempty"`
+	Scopes             []string       `json:"scopes"`
+	SigningKey         string         `json:"signingKey,omitempty"`
+	SigningKeyType     string         `json:"signingKeyType,omitempty"`
+	OrgReferenceID     string         `json:"orgReferenceId,omitempty"`
+	DerivedOrgClientID string         `json:"derivedOrgClientId,omitempty"`
+	Root               string         `json:"root"`
+	RootNonce          string         `json:"rootNonce"`
+	InviteCount        int            `json:"inviteCount"`
+	CreatedAt          int64          `json:"createdAt"`
+	ExpiresAt          int64          `json:"expiresAt"`
+	SignatureMessage   string         `json:"signatureMessage"`
+	Invites            []SignedInvite `json:"invites"`
 }
 
 type SignedOAuthInviteBundle struct {
