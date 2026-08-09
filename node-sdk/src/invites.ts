@@ -457,10 +457,10 @@ const normalizeOpenInviteRequiredSocialIdentity = (provider?: string) => {
 const resolveOpenInviteRequiredSocialIdentity = (input: {
   requiredSocialIdentity?: string;
   allowedIdentityTypes?: string[];
-}) =>
-  normalizeOpenInviteRequiredSocialIdentity(
-    input.requiredSocialIdentity || input.allowedIdentityTypes?.[0],
-  );
+}) => {
+  if (!input.requiredSocialIdentity) return undefined;
+  return normalizeOpenInviteRequiredSocialIdentity(input.requiredSocialIdentity);
+};
 
 export class PviumInviteService {
   constructor(
@@ -847,6 +847,7 @@ export class PviumInviteService {
     signer: OAuthInviteSigner,
   ): Promise<SignedOpenOrganizationInvite> {
     const policy = this.buildOpenOrganizationInvitePolicy(draft);
+    const policyJson = JSON.stringify(policy);
     const signatureMessage =
       this.buildOpenOrganizationInvitePolicyMessage(policy);
     const signature = await this.signRootMessage(signatureMessage, signer);
@@ -858,18 +859,18 @@ export class PviumInviteService {
       inviteNonce: draft.inviteNonce,
       inviteSecret: draft.inviteSecret,
       secretHash: sha256(draft.inviteSecret),
-      policyHash: sha256(signatureMessage),
+      policyHash: sha256(policyJson),
       signature: signature.signature,
       signatureType: signature.signatureType,
       signatureMessage,
       signatureTimestamp: draft.createdAt,
       signerAddress: signature.signerAddress,
       scopes: policy.scopes,
-      allowedIdentityTypes: draft.allowedIdentityTypes,
-      requiredSocialIdentity: policy.requiredSocialIdentity,
+      allowedIdentityTypes: policy.allowedIdentityTypes,
+      requiredSocialIdentity: draft.requiredSocialIdentity,
       allowedEmailDomains: policy.allowedEmailDomains,
-      requireKyc: draft.requireKyc,
-      requireTaxProfile: draft.requireTaxProfile,
+      requireKyc: policy.requireKyc,
+      requireTaxProfile: policy.requireTaxProfile,
       maxUses: policy.maxUses > 0 ? policy.maxUses : undefined,
       expiresAt: policy.expiresAt || undefined,
       redirectUri: draft.redirectUri,
@@ -877,7 +878,7 @@ export class PviumInviteService {
       stateParams: draft.stateParams,
       metadata: {
         version: "1",
-        encoding: "PVIUM_OPEN_INVITE_V1",
+        encoding: "PVIUM_OPEN_ORGANIZATION_INVITE_V1",
       },
     };
   }
@@ -962,7 +963,9 @@ export class PviumInviteService {
       allowedEmailDomains: normalizeOpenInviteEmailDomains(
         draft.allowedEmailDomains,
       ),
-      requiredSocialIdentity: resolveOpenInviteRequiredSocialIdentity(draft),
+      allowedIdentityTypes: normalizeOpenInviteIdentityTypes(
+        draft.allowedIdentityTypes,
+      ),
       createdAt: Number(draft.createdAt || 0),
       expiresAt: draft.expiresAt ? new Date(draft.expiresAt).toISOString() : "",
       inviteNonce: draft.inviteNonce,
@@ -970,6 +973,8 @@ export class PviumInviteService {
         draft.maxUses === undefined || draft.maxUses === null
           ? 0
           : Number(draft.maxUses),
+      requireKyc: !!draft.requireKyc,
+      requireTaxProfile: !!draft.requireTaxProfile,
       scopes: normalizeScopes(draft.scopes || []),
     };
   }
@@ -977,16 +982,9 @@ export class PviumInviteService {
   private buildOpenOrganizationInvitePolicyMessage(
     policy: Record<string, unknown>,
   ): string {
-    return [
-      "PVIUM_OPEN_INVITE_V1",
-      "version=1",
-      `appClientId=${policy.appClientId}`,
-      `inviteNonce=${policy.inviteNonce}`,
-      `scopes=${((policy.scopes as string[]) || []).join(" ")}`,
-      `maxUses=${policy.maxUses}`,
-      `createdAt=${policy.createdAt}`,
-      `expiresAt=${policy.expiresAt}`,
-    ].join("\n");
+    return ["PVIUM_OPEN_ORGANIZATION_INVITE_V1", JSON.stringify(policy)].join(
+      "\n",
+    );
   }
 
   private getResponseValue(response: unknown): unknown {

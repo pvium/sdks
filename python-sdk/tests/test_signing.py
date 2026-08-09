@@ -137,7 +137,7 @@ def test_sign_create_claim_request_matches_manual_hash_encoding():
     assert recovered == TEST_ADDRESS
 
 
-def test_sign_finalize_claim_request_hashes_packed_batch_payload_like_contract_tests():
+def test_sign_finalize_claim_request_hashes_abi_encoded_batch_payload_like_contract_tests():
     claims = [
         {"app": "test-app", "projectId": "usdc-project", "claimId": "0x" + "bb" * 32},
         {"app": "test-app", "projectId": "usdt-project", "claimId": "0x" + "cc" * 32},
@@ -145,10 +145,11 @@ def test_sign_finalize_claim_request_hashes_packed_batch_payload_like_contract_t
 
     data_packed = b""
     for claim in claims:
-        data_packed += claim["app"].encode("utf-8")
-        data_packed += claim["projectId"].encode("utf-8")
-        data_packed += bytes.fromhex(claim["claimId"][2:])
-    expected_hash = to_hex(keccak(data_packed + CHAIN_ID.to_bytes(32, byteorder="big")))
+        data_packed = encode(
+            ["bytes", "string", "string", "bytes32"],
+            [data_packed, claim["app"], claim["projectId"], bytes.fromhex(claim["claimId"][2:])],
+        )
+    expected_hash = to_hex(keccak(encode(["bytes", "uint256"], [data_packed, CHAIN_ID])))
 
     helper_hash = hashFinalizeClaimRequest(claims, CHAIN_ID)
     assert helper_hash == expected_hash
