@@ -1,0 +1,11 @@
+{
+  "comment": "Machine-trackable parity sync marker. `syncedNodeCommit` is the last node-sdk commit whose src/ changes have been reproduced in go-sdk and python-sdk. To see what has diverged since, run: git diff <syncedNodeCommit>..HEAD -- node-sdk/src. Bump this SHA (and updatedAt) whenever a port lands.",
+  "syncedNodeCommit": "5bff523",
+  "updatedAt": "2026-07-31",
+  "sharedFixtures": [
+    "scheduled-payout-finalize.json",
+    "signing-key-authorization.json",
+    "finalize-claim-request.json",
+    "open-organization-invite.json"
+  ]
+}

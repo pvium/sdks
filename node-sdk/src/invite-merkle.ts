@@ -152,7 +152,7 @@ const buildLeafMessage = (params: {
   expiresAt: number;
 }): string => {
   return [
-    'PVIUM_INVITE_LEAF_V1',
+    "PVIUM_INVITE_LEAF_V1",
     `appClientId=${params.appClientId}`,
     `batchId=${params.batchId}`,
     `emailCommitment=${params.emailCommitment}`,
@@ -160,7 +160,7 @@ const buildLeafMessage = (params: {
     `loginHintHash=${params.loginHintHash}`,
     `defaultPayoutAmount=${normalizeAmount(params.defaultPayoutAmount)}`,
     `expiresAt=${params.expiresAt}`,
-  ].join('\n');
+  ].join("\n");
 };
 
 const buildRootMessage = (params: {
@@ -174,16 +174,16 @@ const buildRootMessage = (params: {
   expiresAt: number;
 }): string => {
   return [
-    'PVIUM_INVITE_ROOT_V1',
+    "PVIUM_INVITE_ROOT_V1",
     `version=${params.version}`,
     `appClientId=${params.appClientId}`,
     `batchId=${params.batchId}`,
     `root=${params.root}`,
     `rootNonce=${params.rootNonce}`,
-    `scopes=${params.scopes.join(' ')}`,
+    `scopes=${params.scopes.join(" ")}`,
     `createdAt=${params.createdAt}`,
     `expiresAt=${params.expiresAt}`,
-  ].join('\n');
+  ].join("\n");
 };
 
 /**
@@ -202,12 +202,9 @@ export const createRootNonce = (
 ): string => {
   const rootSalt = salt || randomHex(16);
   return sha256(
-    [
-      "payy.invite.root.v1",
-      batchId || "",
-      scopes.join(" "),
-      rootSalt,
-    ].join(":"),
+    ["payy.invite.root.v1", batchId || "", scopes.join(" "), rootSalt].join(
+      ":",
+    ),
   );
 };
 
@@ -218,24 +215,24 @@ export const createInviteNonce = (): string => randomHex(16);
 // ============================================================================
 
 export type InviteIdentityType =
-  | 'email'
-  | 'handle'
-  | 'wallet'
-  | 'x'
-  | 'github'
-  | 'twitter'
-  | 'discord'
-  | 'telegram';
+  | "email"
+  | "handle"
+  | "wallet"
+  | "x"
+  | "github"
+  | "twitter"
+  | "discord"
+  | "telegram";
 
 export const SUPPORTED_INVITE_IDENTITY_TYPES: InviteIdentityType[] = [
-  'email',
-  'handle',
-  'wallet',
-  'x',
-  'github',
-  'twitter',
-  'discord',
-  'telegram',
+  "email",
+  "handle",
+  "wallet",
+  "x",
+  "github",
+  "twitter",
+  "discord",
+  "telegram",
 ];
 
 /**
@@ -275,8 +272,7 @@ export const detectInviteIdentityType = (
     // Ambiguous with handle when length is exactly 32 and lowercase happens
     // to also satisfy the handle regex.
     const lowered = trimmed.toLowerCase();
-    const alsoValidHandle =
-      trimmed.length <= 32 && HANDLE_RE.test(lowered);
+    const alsoValidHandle = trimmed.length <= 32 && HANDLE_RE.test(lowered);
     return { type: "wallet", ambiguous: alsoValidHandle };
   }
 
@@ -288,11 +284,30 @@ export const detectInviteIdentityType = (
   return null;
 };
 
+/**
+ * Bundle-level request for a delegated transaction signing key. When present,
+ * the key is bound into the signed root message (PVIUM_INVITE_ROOT_V3) so the
+ * consent host can prove the inviter requested exactly this key; the invitee
+ * approves it with their own wallet signature at acceptance time.
+ */
+export interface InviteSigningKeyRequest {
+  publicKey: string;
+  keyType: "ethereum" | "solana";
+  label?: string;
+}
+
 export interface BatchInviteMerkleInputV2 {
   appClientId: string;
   batchId?: string;
   chain?: string;
   scopes: string[];
+  signingKey?: InviteSigningKeyRequest;
+  /**
+   * Ask the server to target a dedicated organization inside the invitee's
+   * account at acceptance, identified deterministically by
+   * hash(appClientId, referenceId). Bound into the signed root (V4).
+   */
+  orgReferenceId?: string;
   invites: Array<{
     inviteId?: string;
     identityType: InviteIdentityType;
@@ -323,11 +338,15 @@ export interface BatchInviteMerkleInviteV2 {
 }
 
 export interface BatchInviteMerkleDataV2 {
-  version: "2";
+  version: "2" | "3" | "4";
   appClientId: string;
   batchId: string;
   chain?: string;
   scopes: string[];
+  signingKey?: string;
+  signingKeyType?: string;
+  orgReferenceId?: string;
+  derivedOrgClientId?: string;
   root: string;
   rootNonce: string;
   inviteCount: number;
@@ -355,6 +374,8 @@ export interface BatchInviteProofVerificationInputV2 {
   signature?: string;
   signatureType?: string;
   signerAddress?: string;
+  signingKey?: string;
+  signingKeyType?: string;
 }
 
 export interface BatchInviteProofVerificationResultV2 {
@@ -381,18 +402,18 @@ export const normalizeIdentityValue = (
 ): string => {
   const trimmed = (value ?? "").trim();
   switch (type) {
-    case 'email':
+    case "email":
       return trimmed.toLowerCase();
-    case 'handle':
-      return trimmed.toLowerCase().replace(/^@/, '');
-    case 'wallet':
+    case "handle":
+      return trimmed.toLowerCase().replace(/^@/, "");
+    case "wallet":
       return EVM_ADDRESS_RE.test(trimmed) ? trimmed.toLowerCase() : trimmed;
-    case 'x':
-    case 'twitter':
-    case 'github':
-    case 'discord':
-    case 'telegram':
-      return trimmed.toLowerCase().replace(/^@/, '');
+    case "x":
+    case "twitter":
+    case "github":
+    case "discord":
+    case "telegram":
+      return trimmed.toLowerCase().replace(/^@/, "");
     default:
       throw new Error(`Unsupported identity type: ${type}`);
   }
@@ -409,23 +430,23 @@ export const validateIdentityValue = (
 
   const normalized = normalizeIdentityValue(type, value);
   switch (type) {
-    case 'email':
-      return EMAIL_RE.test(normalized) ? null : 'Invalid email format';
-    case 'handle':
-      return HANDLE_RE.test(normalized) ? null : 'Invalid handle format';
-    case 'wallet':
+    case "email":
+      return EMAIL_RE.test(normalized) ? null : "Invalid email format";
+    case "handle":
+      return HANDLE_RE.test(normalized) ? null : "Invalid handle format";
+    case "wallet":
       if (
         EVM_ADDRESS_LOWER_RE.test(normalized) ||
         SOLANA_ADDRESS_RE.test(normalized)
       ) {
         return null;
       }
-      return 'Invalid wallet address format';
-    case 'github':
-    case 'x':
-    case 'twitter':
-    case 'discord':
-    case 'telegram':
+      return "Invalid wallet address format";
+    case "github":
+    case "x":
+    case "twitter":
+    case "discord":
+    case "telegram":
       return HANDLE_RE.test(normalized)
         ? null
         : `Invalid ${type} handle format`;
@@ -458,7 +479,8 @@ export const buildInviteMasterSecretMessage = (rootNonce: string): string => {
  */
 export const deriveMasterSecret = (rawSignatureHex: string): string => {
   const normalized = rawSignatureHex.replace(/^0x/, "").toLowerCase();
-  if (!normalized) throw new Error("Cannot derive master secret from empty signature");
+  if (!normalized)
+    throw new Error("Cannot derive master secret from empty signature");
   return sha256(normalized);
 };
 
@@ -479,14 +501,14 @@ export const buildIdentityCommitment = (
   value: string,
   inviteNonce: string,
 ): string => {
-  console.log('BUILDINGCommitment', type, value, inviteNonce);
+  console.log("BUILDINGCommitment", type, value, inviteNonce);
   return sha256(
     [
-      'pvium.invite.identity.v2',
+      "pvium.invite.identity.v2",
       type,
       normalizeIdentityValue(type, value),
       inviteNonce,
-    ].join(':'),
+    ].join(":"),
   );
 };
 
@@ -501,7 +523,7 @@ const buildLeafMessageV2 = (params: {
   expiresAt: number;
 }): string => {
   return [
-    'PVIUM_INVITE_LEAF_V2',
+    "PVIUM_INVITE_LEAF_V2",
     `appClientId=${params.appClientId}`,
     `batchId=${params.batchId}`,
     `identityType=${params.identityType}`,
@@ -510,7 +532,7 @@ const buildLeafMessageV2 = (params: {
     `secretHash=${params.secretHash}`,
     `defaultPayoutAmount=${normalizeAmount(params.defaultPayoutAmount)}`,
     `expiresAt=${params.expiresAt}`,
-  ].join('\n');
+  ].join("\n");
 };
 
 const buildRootMessageV2 = (params: {
@@ -523,16 +545,136 @@ const buildRootMessageV2 = (params: {
   expiresAt: number;
 }): string => {
   return [
-    'PVIUM_INVITE_ROOT_V2',
-    'version=2',
+    "PVIUM_INVITE_ROOT_V2",
+    "version=2",
     `appClientId=${params.appClientId}`,
     `batchId=${params.batchId}`,
     `root=${params.root}`,
     `rootNonce=${params.rootNonce}`,
-    `scopes=${params.scopes.join(' ')}`,
+    `scopes=${params.scopes.join(" ")}`,
     `createdAt=${params.createdAt}`,
     `expiresAt=${params.expiresAt}`,
-  ].join('\n');
+  ].join("\n");
+};
+
+// V3 exists solely to bind a requested delegated signing key into the signed
+// root. Bundles without a signing key keep emitting V2 so existing invites and
+// server verifiers are untouched.
+const buildRootMessageV3 = (params: {
+  appClientId: string;
+  batchId: string;
+  root: string;
+  rootNonce: string;
+  scopes: string[];
+  signingKey: string;
+  signingKeyType: string;
+  createdAt: number;
+  expiresAt: number;
+}): string => {
+  return [
+    "PVIUM_INVITE_ROOT_V3",
+    "version=3",
+    `appClientId=${params.appClientId}`,
+    `batchId=${params.batchId}`,
+    `root=${params.root}`,
+    `rootNonce=${params.rootNonce}`,
+    `scopes=${params.scopes.join(" ")}`,
+    `signingKey=${params.signingKey}`,
+    `signingKeyType=${params.signingKeyType}`,
+    `createdAt=${params.createdAt}`,
+    `expiresAt=${params.expiresAt}`,
+  ].join("\n");
+};
+
+// V4 adds organization targeting: the presence of an orgReferenceId line asks
+// the server to use that org at acceptance, creating it only when write:org is
+// present. The org's clientId is derived deterministically from inputs already
+// in this signed message, so the identity is implicitly attested. signingKey
+// lines are emitted (possibly empty) so the V4 line set is fixed.
+const buildRootMessageV4 = (params: {
+  appClientId: string;
+  batchId: string;
+  root: string;
+  rootNonce: string;
+  scopes: string[];
+  signingKey: string;
+  signingKeyType: string;
+  orgReferenceId: string;
+  createdAt: number;
+  expiresAt: number;
+}): string => {
+  return [
+    "PVIUM_INVITE_ROOT_V4",
+    "version=4",
+    `appClientId=${params.appClientId}`,
+    `batchId=${params.batchId}`,
+    `root=${params.root}`,
+    `rootNonce=${params.rootNonce}`,
+    `scopes=${params.scopes.join(" ")}`,
+    `signingKey=${params.signingKey}`,
+    `signingKeyType=${params.signingKeyType}`,
+    `orgReferenceId=${params.orgReferenceId}`,
+    `createdAt=${params.createdAt}`,
+    `expiresAt=${params.expiresAt}`,
+  ].join("\n");
+};
+
+export const DERIVED_ORG_CLIENT_ID_DOMAIN_V2 = "PVIUM_DERIVED_CLIENT_ID_V2";
+export const DERIVED_ORG_CLIENT_ID_PREFIX = "subcli_";
+const ORG_REFERENCE_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+
+export const normalizeOrgReferenceId = (
+  referenceId?: string,
+): string | undefined => {
+  if (referenceId === undefined || referenceId === null) return undefined;
+  const normalized = String(referenceId).trim();
+  if (!ORG_REFERENCE_ID_RE.test(normalized)) {
+    throw new Error("orgReferenceId must be 1-128 characters of [A-Za-z0-9_-]");
+  }
+  return normalized;
+};
+
+/**
+ * Deterministic clientId of the derived (provisioned) organization. Publicly
+ * computable from values in the signed root, so the consent page can display
+ * it — and the invitee's wallet can sign over it — before the org exists.
+ * Truncated to 32 hex chars to match the length of standard `cli_` ids;
+ * `subcli_` cannot collide with random ids because `s`/`u` are not hex.
+ */
+export const deriveOrgClientId = (
+  inviterClientId: string,
+  referenceId: string,
+): string => {
+  const normalizedRef = normalizeOrgReferenceId(referenceId);
+  if (!normalizedRef) {
+    throw new Error("referenceId is required to derive an org clientId");
+  }
+  const digest = sha256(
+    `${DERIVED_ORG_CLIENT_ID_DOMAIN_V2}:${inviterClientId.trim()}:${normalizedRef}`,
+  );
+  return `${DERIVED_ORG_CLIENT_ID_PREFIX}${digest.substring(0, 32)}`;
+};
+
+export const normalizeSigningKeyRequest = (
+  signingKey?: InviteSigningKeyRequest,
+): { publicKey: string; keyType: string } | undefined => {
+  if (!signingKey) return undefined;
+  const publicKey = (signingKey.publicKey ?? "").trim();
+  const keyType = (signingKey.keyType ?? "").trim();
+  if (!publicKey || !keyType) {
+    throw new Error(
+      "signingKey requires both publicKey and keyType when provided",
+    );
+  }
+  if (keyType === "ethereum" && !EVM_ADDRESS_RE.test(publicKey)) {
+    throw new Error(
+      "signingKey.publicKey must be an EVM address for keyType ethereum",
+    );
+  }
+  return {
+    publicKey: keyType === "ethereum" ? publicKey.toLowerCase() : publicKey,
+    keyType,
+  };
 };
 
 export const generateBatchInviteMerkleDataV2 = (
@@ -543,7 +685,10 @@ export const generateBatchInviteMerkleDataV2 = (
   }
 
   for (const invite of input.invites) {
-    const err = validateIdentityValue(invite.identityType, invite.identityValue);
+    const err = validateIdentityValue(
+      invite.identityType,
+      invite.identityValue,
+    );
     if (err) {
       throw new Error(
         `Invalid invite identity (${invite.identityType}=${invite.identityValue}): ${err}`,
@@ -554,8 +699,7 @@ export const generateBatchInviteMerkleDataV2 = (
   const scopes = normalizeScopes(input.scopes);
   const batchId = input.batchId || "";
   const createdAt = input.createdAt || Math.floor(Date.now() / 1000);
-  const rootNonce =
-    input.rootNonce || createRootNonce(batchId, scopes);
+  const rootNonce = input.rootNonce || createRootNonce(batchId, scopes);
 
   const invitesWithoutProofs = input.invites.map((invite) => {
     const inviteNonce = invite.inviteNonce || createInviteNonce();
@@ -616,22 +760,56 @@ export const generateBatchInviteMerkleDataV2 = (
     proof: tree.getHexProof(leafBuffer),
   }));
 
-  const signatureMessage = buildRootMessageV2({
-    appClientId: input.appClientId,
-    batchId,
-    root,
-    rootNonce,
-    scopes,
-    createdAt,
-    expiresAt,
-  });
+  const signingKey = normalizeSigningKeyRequest(input.signingKey);
+  const orgReferenceId = normalizeOrgReferenceId(input.orgReferenceId);
+  const derivedOrgClientId = orgReferenceId
+    ? deriveOrgClientId(input.appClientId, orgReferenceId)
+    : undefined;
+  const signatureMessage = orgReferenceId
+    ? buildRootMessageV4({
+        appClientId: input.appClientId,
+        batchId,
+        root,
+        rootNonce,
+        scopes,
+        signingKey: signingKey?.publicKey ?? "",
+        signingKeyType: signingKey?.keyType ?? "",
+        orgReferenceId,
+        createdAt,
+        expiresAt,
+      })
+    : signingKey
+      ? buildRootMessageV3({
+          appClientId: input.appClientId,
+          batchId,
+          root,
+          rootNonce,
+          scopes,
+          signingKey: signingKey.publicKey,
+          signingKeyType: signingKey.keyType,
+          createdAt,
+          expiresAt,
+        })
+      : buildRootMessageV2({
+          appClientId: input.appClientId,
+          batchId,
+          root,
+          rootNonce,
+          scopes,
+          createdAt,
+          expiresAt,
+        });
 
   return {
-    version: "2",
+    version: orgReferenceId ? "4" : signingKey ? "3" : "2",
     appClientId: input.appClientId,
     batchId,
     chain: input.chain,
     scopes,
+    signingKey: signingKey?.publicKey,
+    signingKeyType: signingKey?.keyType,
+    orgReferenceId,
+    derivedOrgClientId,
     root,
     rootNonce,
     inviteCount: invites.length,
@@ -726,6 +904,21 @@ export const verifyBatchInviteProofV2 = (
     errors.push("Invite root signature message does not contain root");
   }
 
+  // When the caller says a delegated signing key was requested, the key must
+  // be inside the signed root message — a key that only exists outside the
+  // signature is not something the inviter provably asked for.
+  if (input.signingKey && input.signatureMessage) {
+    const normalizedKey =
+      input.signingKeyType === "ethereum"
+        ? input.signingKey.trim().toLowerCase()
+        : input.signingKey.trim();
+    if (!input.signatureMessage.includes(`\nsigningKey=${normalizedKey}\n`)) {
+      errors.push(
+        "Invite root signature message does not contain the requested signing key",
+      );
+    }
+  }
+
   return {
     valid: errors.length === 0,
     leaf,
@@ -753,8 +946,7 @@ export const generateBatchInviteMerkleData = (
   const scopes = normalizeScopes(input.scopes);
   const batchId = input.batchId || "";
   const createdAt = input.createdAt || Math.floor(Date.now() / 1000);
-  const rootNonce =
-    input.rootNonce || createRootNonce(batchId, scopes);
+  const rootNonce = input.rootNonce || createRootNonce(batchId, scopes);
 
   const invitesWithoutProofs = input.invites.map((invite) => {
     const inviteNonce = invite.inviteNonce || createInviteNonce();

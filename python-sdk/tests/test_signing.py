@@ -200,3 +200,31 @@ def test_relayed_dispute_resolve_helpers_match_manual_encoding_and_accept_signer
     assert resolve_hash == expected_resolve_hash
     resolve_sig = signResolveDisputeRequest(resolve_payload, signer)
     assert Account.recover_message(encode_defunct(hexstr=resolve_hash), signature=resolve_sig) == TEST_ADDRESS
+
+
+def _load_fixture(name):
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "parity-fixtures" / name
+    return json.loads(path.read_text())
+
+
+def test_finalize_claim_request_matches_node_parity_fixture():
+    fixture = _load_fixture("finalize-claim-request.json")
+
+    message_hash = hashFinalizeClaimRequest(fixture["claims"], fixture["chainId"])
+    assert message_hash == fixture["messageHash"]
+
+    signature = signFinalizeClaimRequest(fixture["claims"], fixture["privateKey"], fixture["chainId"])
+    assert signature == fixture["signature"]
+
+    recovered = Account.recover_message(encode_defunct(hexstr=message_hash), signature=signature)
+    assert recovered.lower() == fixture["signer"].lower()
+
+
+def test_finalize_claim_request_length_delimits_to_avoid_collision():
+    claim_id = "0x" + "cc" * 32
+    hash_a = hashFinalizeClaimRequest([{"app": "app", "projectId": "roj", "claimId": claim_id}], 8453)
+    hash_b = hashFinalizeClaimRequest([{"app": "ap", "projectId": "proj", "claimId": claim_id}], 8453)
+    assert hash_a != hash_b

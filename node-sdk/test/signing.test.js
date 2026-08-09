@@ -163,7 +163,7 @@ test("signCreateClaimRequest matches manual hash encoding", async () => {
   assert.equal(recovered, TEST_ADDRESS);
 });
 
-test("signFinalizeClaimRequest hashes packed batch payload like contract tests", async () => {
+test("signFinalizeClaimRequest hashes claims with abi.encode like SmartEscrowFactory.finalizeClaim", async () => {
   const claims = [
     {
       app: "test-app",
@@ -179,17 +179,18 @@ test("signFinalizeClaimRequest hashes packed batch payload like contract tests",
     },
   ];
 
+  // Length-delimited abi.encode, matching the contract + backend verifier.
   let dataPacked = "0x";
   for (const claim of claims) {
-    dataPacked = concat([
-      dataPacked,
-      toUtf8Bytes(claim.app),
-      toUtf8Bytes(claim.projectId),
-      claim.claimId,
-    ]);
+    dataPacked = ABI_CODER.encode(
+      ["bytes", "string", "string", "bytes32"],
+      [dataPacked, claim.app, claim.projectId, claim.claimId],
+    );
   }
 
-  const expectedHash = keccak256(concat([dataPacked, toBeHex(CHAIN_ID, 32)]));
+  const expectedHash = keccak256(
+    ABI_CODER.encode(["bytes", "uint256"], [dataPacked, CHAIN_ID]),
+  );
 
   const helperHash = hashFinalizeClaimRequest(claims, CHAIN_ID);
   assert.equal(helperHash, expectedHash);
@@ -202,6 +203,16 @@ test("signFinalizeClaimRequest hashes packed batch payload like contract tests",
   const recovered = verifyMessage(getBytes(helperHash), signature);
 
   assert.equal(recovered, TEST_ADDRESS);
+});
+
+test("hashFinalizeClaimRequest is not collision-prone across app/projectId boundaries", () => {
+  const claimId =
+    "0x1111111111111111111111111111111111111111111111111111111111111111";
+  // Under the old encodePacked form these two collided (utf8('app')+utf8('roj')
+  // == utf8('ap')+utf8('proj')); abi.encode length-prefixes each string.
+  const a = hashFinalizeClaimRequest([{ app: "app", projectId: "roj", claimId }], 8453);
+  const b = hashFinalizeClaimRequest([{ app: "ap", projectId: "proj", claimId }], 8453);
+  assert.notEqual(a, b);
 });
 
 test("relayed/dispute/resolve helpers match manual encoding and accept signer instance", async () => {

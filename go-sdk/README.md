@@ -4,7 +4,7 @@ Pvium provides programmable zero-custody stablecoin payments for the global gig 
 
 This SDK provides Go access to Pvium APIs and helpers for generating signed OAuth invite links, including Merkle-root-backed invite bundles for invite and batch payment workflows.
 
-- Developer documentation: https://pvium.gitbook.io/documentation
+- Developer documentation: https://docs.pvium.com
 - Pvium website: https://pvium.com
 - Pvium sandbox: https://sandbox.pvium.com
 - TypeScript SDK README: [../node-sdk/README.md](../node-sdk/README.md)

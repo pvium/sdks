@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -384,6 +385,54 @@ def generateInstantPayoutHash(payments: Sequence[Dict[str, Any]], nonce: str) ->
     return _to_hex(keccak(encoded))
 
 
+def _normalize_authorization_uint(value: Any, context: str) -> int:
+    if isinstance(value, bool):
+        raise RuntimeError(f"{context} must be an integer")
+    if isinstance(value, str):
+        trimmed = value.strip()
+        n = int(trimmed, 16) if trimmed.lower().startswith("0x") else int(trimmed)
+    else:
+        n = int(value)
+    if n < 0:
+        raise RuntimeError(f"{context} must be greater than or equal to zero")
+    return n
+
+
+def _normalize_bytes32_id(value: str, context: str) -> HexString:
+    trimmed = str(value).strip()
+    body = trimmed[2:] if trimmed.startswith("0x") else trimmed.replace("-", "")
+    if not body or len(body) > 64 or not re.fullmatch(r"[0-9a-fA-F]+", body):
+        raise RuntimeError(f"{context} must be a bytes32 hex value or hex-compatible id")
+    return "0x" + body.ljust(64, "0").lower()
+
+
+def computeSigningKeyAuthorizationHash(params: Dict[str, Any]) -> Dict[str, Any]:
+    batch_hash = _normalize_bytes32_id(params["batchHash"], "batchHash")
+    signing_key = to_checksum_address(params["signingKey"])
+    transaction_max = _normalize_authorization_uint(params["transactionMax"], "transactionMax")
+    total_max = _normalize_authorization_uint(params["totalMax"], "totalMax")
+    expiration = _normalize_authorization_uint(params["expiration"], "expiration")
+    timestamp = _normalize_authorization_uint(params["timestamp"], "timestamp")
+
+    packed = encode_packed(
+        ["bytes32", "address", "uint256", "uint256", "uint256", "uint256"],
+        [_hex_bytes(batch_hash), signing_key, transaction_max, total_max, expiration, timestamp],
+    )
+    auth_message_hash = _to_hex(keccak(packed))
+
+    return {
+        "normalizedInput": {
+            "batchHash": batch_hash,
+            "signingKey": signing_key,
+            "transactionMax": transaction_max,
+            "totalMax": total_max,
+            "expiration": expiration,
+            "timestamp": timestamp,
+        },
+        "authMessageHash": auth_message_hash,
+    }
+
+
 def computeScheduledPayoutHash(params: Dict[str, Any]) -> HexString:
     encoded = encode(
         ["bytes32", "address", "uint256", "uint256", "uint256", "uint256"],
@@ -673,6 +722,47 @@ class PviumPayoutService:
         self.http = http
         self.consentHost = resolvePviumConsentHost(config)
         self.clientId = config.clientId
+
+    def authorizeSigningKey(
+        self,
+        batch_hash: HexString,
+        signing_key: str,
+        network_type: str,
+        authorization_data: Dict[str, Any],
+        signer: PayoutSignerInput,
+    ) -> Dict[str, Any]:
+        if network_type not in ("ethereum", "solana"):
+            raise RuntimeError("networkType must be ethereum or solana")
+
+        timestamp = authorization_data.get("timestamp")
+        if timestamp is None or timestamp == "":
+            timestamp = int(time.time())
+
+        computed = computeSigningKeyAuthorizationHash(
+            {
+                "batchHash": batch_hash,
+                "signingKey": signing_key,
+                "transactionMax": authorization_data["transactionMax"],
+                "totalMax": authorization_data["totalMax"],
+                "expiration": authorization_data["expiration"],
+                "timestamp": timestamp,
+            }
+        )
+        normalized = computed["normalizedInput"]
+        auth_message_hash = computed["authMessageHash"]
+        signature = _sign_funding_digest(signer, auth_message_hash)
+
+        return {
+            "batchHash": batch_hash,
+            "signingKey": normalized["signingKey"],
+            "networkType": network_type,
+            "transactionMax": str(normalized["transactionMax"]),
+            "totalMax": str(normalized["totalMax"]),
+            "expiration": str(normalized["expiration"]),
+            "timestamp": str(normalized["timestamp"]),
+            "authMessageHash": auth_message_hash,
+            "signature": signature,
+        }
 
     def create(self, input: Dict[str, Any], options: Optional[RequestOptions] = None) -> Dict[str, Any]:
         mapped = _map_payout_type(input.get("type"))

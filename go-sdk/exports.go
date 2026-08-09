@@ -129,6 +129,25 @@ type PayoutFinalizeOptions = models.PayoutFinalizeOptions
 type PayoutIntent = services.PayoutIntent
 type PayoutFinalization = services.PayoutFinalization
 
+type PayoutSigningKeyNetworkType = models.PayoutSigningKeyNetworkType
+
+const (
+	PayoutSigningKeyNetworkEthereum = models.PayoutSigningKeyNetworkEthereum
+	PayoutSigningKeyNetworkSolana   = models.PayoutSigningKeyNetworkSolana
+)
+
+type PayoutSigningKeyAuthorizationData = models.PayoutSigningKeyAuthorizationData
+type PayoutSigningKeyAuthorization = models.PayoutSigningKeyAuthorization
+
+type OpenOrganizationInviteInput = models.OpenOrganizationInviteInput
+type OpenOrganizationInviteDraft = models.OpenOrganizationInviteDraft
+type SignedOpenOrganizationInvite = models.SignedOpenOrganizationInvite
+type OpenOrganizationInviteCommitResult = models.OpenOrganizationInviteCommitResult
+
+type SigningKeyAuthorizationHashParams = pvcrypto.SigningKeyAuthorizationHashParams
+type SigningKeyAuthorizationHash = pvcrypto.SigningKeyAuthorizationHash
+type NormalizedSigningKeyAuthorization = pvcrypto.NormalizedSigningKeyAuthorization
+
 type PviumWebhookTokenPayload = models.PviumWebhookTokenPayload
 type VerifyPviumWebhookTokenOptions = models.VerifyPviumWebhookTokenOptions
 
@@ -230,6 +249,9 @@ func ComputeEscrowFundingDigest(escrowBatchHash, withdrawalWallet string) string
 }
 func ComputeEscrowScheduledFundingDigest(escrowBatchHash, merkleRoot string) string {
 	return pvcrypto.ComputeEscrowScheduledFundingDigest(escrowBatchHash, merkleRoot)
+}
+func ComputeSigningKeyAuthorizationHash(params SigningKeyAuthorizationHashParams) (SigningKeyAuthorizationHash, error) {
+	return pvcrypto.ComputeSigningKeyAuthorizationHash(params)
 }
 
 func CreateInviteNonce() (string, error)  { return pvcrypto.CreateInviteNonce() }

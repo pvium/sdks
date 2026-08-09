@@ -1,0 +1,40 @@
+{
+  "config": {
+    "clientId": "app_test_client",
+    "consentHost": "https://consent.example.test",
+    "baseUrl": "https://api.example.test/v1",
+    "apiKey": "app_key"
+  },
+  "signer": {
+    "chain": "base",
+    "privateKey": "0x59c6995e998f97a5a004497e5daaaa853d873599e62e568a0a7d3a57c5fd8d0d"
+  },
+  "input": {
+    "label": "Contractors 2026",
+    "scopes": ["write:invoice", "read:user", "read:user", "read:business_profile"],
+    "allowedIdentityTypes": ["email", "handle", "email"],
+    "allowedEmailDomains": ["Example.COM", "acme.io", "example.com"],
+    "requireKyc": true,
+    "requireTaxProfile": false,
+    "maxUses": 25,
+    "expiresAt": "2026-12-31T00:00:00.000Z",
+    "createdAt": 1777487451,
+    "inviteNonce": "nonce_fixedvalue_0001",
+    "inviteSecret": "secret_fixedvalue_0002",
+    "redirectUri": "https://app.example.test/callback",
+    "state": "xyz",
+    "stateParams": { "ref": "abc", "n": 7 }
+  },
+  "expected": {
+    "secretHash": "778564d0f83b0ea6b8bd74d50a533966c8009d32e89163388a716d17bda74019",
+    "policyHash": "aee2f3f67b21f617b574161c5c63b0ce667d1b17a833768b855dfc2b82e0d1dd",
+    "signature": "0x3e77a11f3bd6aab05f9c7f507aa542ae4fd496faa9724b55a513f1d349cb70b142af6681579ebb0225d657fc4a8e060cc96e9475486eef475553b91bff0ef67b1c",
+    "signatureType": "evm-personal-sign",
+    "signatureMessage": "PVIUM_OPEN_ORGANIZATION_INVITE_V1\n{\"appClientId\":\"app_test_client\",\"allowedEmailDomains\":[\"acme.io\",\"example.com\"],\"allowedIdentityTypes\":[\"email\",\"handle\"],\"createdAt\":1777487451,\"expiresAt\":\"2026-12-31T00:00:00.000Z\",\"inviteNonce\":\"nonce_fixedvalue_0001\",\"maxUses\":25,\"requireKyc\":true,\"requireTaxProfile\":false,\"scopes\":[\"read:business_profile\",\"read:user\",\"write:invoice\"]}",
+    "signatureTimestamp": 1777487451,
+    "signerAddress": "0xdCaBD312abEfdE67Cf80e71f1cba08005490828f",
+    "scopes": ["read:business_profile", "read:user", "write:invoice"],
+    "allowedIdentityTypes": ["email", "handle"],
+    "allowedEmailDomains": ["acme.io", "example.com"]
+  }
+}

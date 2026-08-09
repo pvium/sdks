@@ -37,6 +37,48 @@ export class PviumApiError extends Error {
   }
 }
 
+/**
+ * Machine-readable causes for a 401 from the Pvium API. Distinguishes the
+ * recoverable cases so integrations can self-heal:
+ * - token_expired: use the refresh token.
+ * - authorization_superseded: a newer consent replaced this grant (e.g. the
+ *   user re-connected) — fetch the tokens issued with the newer
+ *   authorization; no user interaction needed.
+ * - authorization_revoked: the user disconnected; re-consent is required.
+ */
+export type PviumAuthErrorCode =
+  | "token_expired"
+  | "authorization_superseded"
+  | "authorization_revoked";
+
+const PVIUM_AUTH_ERROR_CODES: readonly PviumAuthErrorCode[] = [
+  "token_expired",
+  "authorization_superseded",
+  "authorization_revoked",
+];
+
+export function getPviumAuthErrorCode(
+  error: unknown,
+): PviumAuthErrorCode | null {
+  if (!(error instanceof PviumApiError) || error.status !== 401) return null;
+  const message = (error.body as { message?: unknown } | null)?.message;
+  return PVIUM_AUTH_ERROR_CODES.includes(message as PviumAuthErrorCode)
+    ? (message as PviumAuthErrorCode)
+    : null;
+}
+
+export function isAuthorizationSupersededError(error: unknown): boolean {
+  return getPviumAuthErrorCode(error) === "authorization_superseded";
+}
+
+export function isAuthorizationRevokedError(error: unknown): boolean {
+  return getPviumAuthErrorCode(error) === "authorization_revoked";
+}
+
+export function isTokenExpiredError(error: unknown): boolean {
+  return getPviumAuthErrorCode(error) === "token_expired";
+}
+
 export const PVIUM_BASE_URLS = {
   test: "http://localhost:4005/v1",
   sandbox: "https://api-sandbox.pvium.com/v1",

@@ -3,12 +3,9 @@ import {
   Wallet,
   type AbiCoder as AbiCoderTypes,
   type Signer,
-  concat,
   getBytes,
   id,
   keccak256,
-  toBeHex,
-  toUtf8Bytes,
 } from "ethers";
 
 export type HexString = `0x${string}`;
@@ -216,18 +213,22 @@ export function hashFinalizeClaimRequest(
   claims: readonly FinalizeClaimRequestPayload[],
   chainId: Numeric,
 ): HexString {
+  // Length-delimited ABI encoding, matching SmartEscrowFactory.finalizeClaim and
+  // the backend's createFinalizeClaimSignature. Using abi.encode (not encodePacked)
+  // is required for parity AND to avoid the collision inherent to concatenating
+  // variable-length `app`/`projectId` strings without length prefixes.
   let dataPacked: HexString = "0x";
 
   for (const claim of claims) {
-    dataPacked = concat([
-      dataPacked,
-      toUtf8Bytes(claim.app),
-      toUtf8Bytes(claim.projectId),
-      claim.claimId,
-    ]) as HexString;
+    dataPacked = ABI_CODER.encode(
+      ["bytes", "string", "string", "bytes32"],
+      [dataPacked, claim.app, claim.projectId, claim.claimId],
+    ) as HexString;
   }
 
-  return keccak256(concat([dataPacked, toBeHex(chainId, 32)])) as HexString;
+  return keccak256(
+    ABI_CODER.encode(["bytes", "uint256"], [dataPacked, chainId]),
+  ) as HexString;
 }
 
 export async function signFinalizeClaimRequest(
