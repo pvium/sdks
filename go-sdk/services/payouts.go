@@ -176,6 +176,42 @@ func NewPayoutService(client *transport.HTTPClient) *PayoutService {
 	return &PayoutService{client: client}
 }
 
+func (s *PayoutService) AuthorizeSigningKey(batchHash, signingKey string, networkType models.PayoutSigningKeyNetworkType, data models.PayoutSigningKeyAuthorizationData, signer models.PayoutSignerInput) (models.PayoutSigningKeyAuthorization, error) {
+	if networkType != models.PayoutSigningKeyNetworkEthereum && networkType != models.PayoutSigningKeyNetworkSolana {
+		return models.PayoutSigningKeyAuthorization{}, errors.New("networkType must be ethereum or solana")
+	}
+	timestamp := strings.TrimSpace(data.Timestamp)
+	if timestamp == "" {
+		timestamp = strconv.FormatInt(timeNowUnix(), 10)
+	}
+	hash, err := pvcrypto.ComputeSigningKeyAuthorizationHash(pvcrypto.SigningKeyAuthorizationHashParams{
+		BatchHash:      batchHash,
+		SigningKey:     signingKey,
+		TransactionMax: data.TransactionMax,
+		TotalMax:       data.TotalMax,
+		Expiration:     data.Expiration,
+		Timestamp:      timestamp,
+	})
+	if err != nil {
+		return models.PayoutSigningKeyAuthorization{}, err
+	}
+	signature, err := signFundingDigest(signer, hash.AuthMessageHash)
+	if err != nil {
+		return models.PayoutSigningKeyAuthorization{}, err
+	}
+	return models.PayoutSigningKeyAuthorization{
+		BatchHash:       batchHash,
+		SigningKey:      hash.NormalizedInput.SigningKey,
+		NetworkType:     networkType,
+		TransactionMax:  hash.NormalizedInput.TransactionMax.String(),
+		TotalMax:        hash.NormalizedInput.TotalMax.String(),
+		Expiration:      hash.NormalizedInput.Expiration.String(),
+		Timestamp:       hash.NormalizedInput.Timestamp.String(),
+		AuthMessageHash: hash.AuthMessageHash,
+		Signature:       signature,
+	}, nil
+}
+
 func (s *PayoutService) Create(ctx context.Context, input models.CreatePayoutInput, options *models.RequestOptions) (*PayoutIntent, error) {
 	body, err := buildCreatePayoutBody(input)
 	if err != nil {

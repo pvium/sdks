@@ -8,27 +8,27 @@ Each SDK exposes Pvium API clients plus helpers for OAuth invite links, webhooks
 batch payouts, scheduled payouts, escrow payouts, Merkle proofs, and signing
 flows used by Pvium payment workflows.
 
-- Developer documentation: https://pvium.gitbook.io/documentation
+- Developer documentation: https://docs.pvium.com
 - Pvium website: https://pvium.com
 - Pvium sandbox: https://sandbox.pvium.com
 
 ## SDKs
 
-| SDK | Package | Install | Docs |
-| --- | --- | --- | --- |
-| TypeScript / Node.js | `@pvium/sdk` | `npm install @pvium/sdk` | [node-sdk/README.md](node-sdk/README.md) |
-| Python | `pvium` | `pip install pvium` | [python-sdk/README.md](python-sdk/README.md) |
-| Go | `github.com/pvium/sdks/go-sdk` | `go get github.com/pvium/sdks/go-sdk` | [go-sdk/README.md](go-sdk/README.md) |
+| SDK                  | Package                        | Install                               | Docs                                         |
+| -------------------- | ------------------------------ | ------------------------------------- | -------------------------------------------- |
+| TypeScript / Node.js | `@pvium/sdk`                   | `npm install @pvium/sdk`              | [node-sdk/README.md](node-sdk/README.md)     |
+| Python               | `pvium`                        | `pip install pvium`                   | [python-sdk/README.md](python-sdk/README.md) |
+| Go                   | `github.com/pvium/sdks/go-sdk` | `go get github.com/pvium/sdks/go-sdk` | [go-sdk/README.md](go-sdk/README.md)         |
 
 ## Quick Starts
 
 TypeScript:
 
 ```ts
-import { PviumSdk } from "@pvium/sdk";
+import { PviumSdk } from '@pvium/sdk';
 
 const pvium = PviumSdk.init({
-  environment: "sandbox",
+  environment: 'sandbox',
   apiKey: process.env.PVIUM_API_KEY as string,
 });
 

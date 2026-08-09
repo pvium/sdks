@@ -122,7 +122,9 @@ func TestSignFinalizeClaimRequestMatchesNodeEncoding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hash finalize claim: %v", err)
 	}
-	const expectedHash = "0x968419473994171a9ca2099d6307d9151e044b929039f7ecb0feb1610d5d6e8a"
+	// Corrected length-delimited abi.encode form (matches SmartEscrowFactory.finalizeClaim
+	// and parity-fixtures/finalize-claim-request.json), replacing the legacy encodePacked hash.
+	const expectedHash = "0x5b98d234f96577c797da1c23fc93328000574224083fab45ca93db4ecf2aceb7"
 	if hashHex != expectedHash {
 		t.Fatalf("finalize hash mismatch: got %s want %s", hashHex, expectedHash)
 	}

@@ -183,18 +183,142 @@ func HashCreateClaimRequest(payload CreateClaimRequestPayload) (string, error) {
 	return KeccakHex(packed), nil
 }
 func HashFinalizeClaimRequest(claims FinalizeClaimRequestPayload, chainID any) (string, error) {
-	data := []byte{}
+	// Length-delimited ABI encoding, matching SmartEscrowFactory.finalizeClaim and
+	// the backend's createFinalizeClaimSignature. Using abi.encode (not encodePacked)
+	// is required for parity AND to avoid the collision inherent to concatenating
+	// variable-length app/projectId strings without length prefixes.
+	bytesType, err := abi.NewType("bytes", "", nil)
+	if err != nil {
+		return "", err
+	}
+	stringType, err := abi.NewType("string", "", nil)
+	if err != nil {
+		return "", err
+	}
+	bytes32Type, err := abi.NewType("bytes32", "", nil)
+	if err != nil {
+		return "", err
+	}
+	uintType, err := abi.NewType("uint256", "", nil)
+	if err != nil {
+		return "", err
+	}
+
+	stepArgs := abi.Arguments{{Type: bytesType}, {Type: stringType}, {Type: stringType}, {Type: bytes32Type}}
+	dataPacked := []byte{}
 	for _, claim := range claims {
-		data = append(data, []byte(stringFromMap(claim, "app"))...)
-		data = append(data, []byte(stringFromMap(claim, "projectId"))...)
-		claimBytes, err := hex.DecodeString(strings.TrimPrefix(stringFromMap(claim, "claimId"), "0x"))
+		packed, err := stepArgs.Pack(
+			dataPacked,
+			stringFromMap(claim, "app"),
+			stringFromMap(claim, "projectId"),
+			common.HexToHash(stringFromMap(claim, "claimId")),
+		)
 		if err != nil {
 			return "", err
 		}
-		data = append(data, claimBytes...)
+		dataPacked = packed
 	}
-	data = append(data, uint256Bytes(bigFromAny(chainID))...)
-	return KeccakHex(data), nil
+
+	finalArgs := abi.Arguments{{Type: bytesType}, {Type: uintType}}
+	packed, err := finalArgs.Pack(dataPacked, bigFromAny(chainID))
+	if err != nil {
+		return "", err
+	}
+	return KeccakHex(packed), nil
+}
+
+// SigningKeyAuthorizationHashParams captures the inputs used to derive a signing key
+// authorization digest. The four uint256 fields accept decimal or 0x-hex strings.
+type SigningKeyAuthorizationHashParams struct {
+	BatchHash      string
+	SigningKey     string
+	TransactionMax string
+	TotalMax       string
+	Expiration     string
+	Timestamp      string
+}
+
+// NormalizedSigningKeyAuthorization holds the normalized authorization inputs.
+type NormalizedSigningKeyAuthorization struct {
+	BatchHash      string
+	SigningKey     string
+	TransactionMax *big.Int
+	TotalMax       *big.Int
+	Expiration     *big.Int
+	Timestamp      *big.Int
+}
+
+// SigningKeyAuthorizationHash is the result of ComputeSigningKeyAuthorizationHash.
+type SigningKeyAuthorizationHash struct {
+	NormalizedInput NormalizedSigningKeyAuthorization
+	AuthMessageHash string
+}
+
+func parseAuthorizationUint(value string, context string) (*big.Int, error) {
+	s := strings.TrimSpace(value)
+	if s == "" {
+		return nil, fmt.Errorf("%s is required", context)
+	}
+	var (
+		n  *big.Int
+		ok bool
+	)
+	if strings.HasPrefix(s, "0x") || strings.HasPrefix(s, "0X") {
+		n, ok = new(big.Int).SetString(s[2:], 16)
+	} else {
+		n, ok = new(big.Int).SetString(s, 10)
+	}
+	if !ok || n == nil {
+		return nil, fmt.Errorf("%s must be a numeric value", context)
+	}
+	if n.Sign() < 0 {
+		return nil, fmt.Errorf("%s must be greater than or equal to zero", context)
+	}
+	return n, nil
+}
+
+// ComputeSigningKeyAuthorizationHash derives the abi.encodePacked keccak256 digest that a
+// funding signer authorizes to delegate signing to another key.
+func ComputeSigningKeyAuthorizationHash(params SigningKeyAuthorizationHashParams) (SigningKeyAuthorizationHash, error) {
+	batchHash := common.HexToHash(params.BatchHash)
+	signingKey := common.HexToAddress(params.SigningKey)
+	transactionMax, err := parseAuthorizationUint(params.TransactionMax, "transactionMax")
+	if err != nil {
+		return SigningKeyAuthorizationHash{}, err
+	}
+	totalMax, err := parseAuthorizationUint(params.TotalMax, "totalMax")
+	if err != nil {
+		return SigningKeyAuthorizationHash{}, err
+	}
+	expiration, err := parseAuthorizationUint(params.Expiration, "expiration")
+	if err != nil {
+		return SigningKeyAuthorizationHash{}, err
+	}
+	timestamp, err := parseAuthorizationUint(params.Timestamp, "timestamp")
+	if err != nil {
+		return SigningKeyAuthorizationHash{}, err
+	}
+
+	// abi.encodePacked(bytes32, address, uint256, uint256, uint256, uint256)
+	packed := []byte{}
+	packed = append(packed, batchHash.Bytes()...)
+	packed = append(packed, signingKey.Bytes()...)
+	packed = append(packed, uint256Bytes(transactionMax)...)
+	packed = append(packed, uint256Bytes(totalMax)...)
+	packed = append(packed, uint256Bytes(expiration)...)
+	packed = append(packed, uint256Bytes(timestamp)...)
+
+	return SigningKeyAuthorizationHash{
+		NormalizedInput: NormalizedSigningKeyAuthorization{
+			BatchHash:      batchHash.Hex(),
+			SigningKey:     signingKey.Hex(),
+			TransactionMax: transactionMax,
+			TotalMax:       totalMax,
+			Expiration:     expiration,
+			Timestamp:      timestamp,
+		},
+		AuthMessageHash: KeccakHex(packed),
+	}, nil
 }
 
 func HashDisputeRequest(claimID string, chainID uint64) (string, error) {

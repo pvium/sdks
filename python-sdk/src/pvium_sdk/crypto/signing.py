@@ -141,13 +141,18 @@ def signCreateClaimRequest(payload: Dict[str, Any], signer_or_private_key: Any) 
 
 
 def hashFinalizeClaimRequest(claims: Sequence[Dict[str, Any]], chain_id: Numeric) -> HexString:
+    # Length-delimited ABI encoding, matching SmartEscrowFactory.finalizeClaim and the
+    # backend's createFinalizeClaimSignature. abi.encode (not encode_packed) is required
+    # for parity AND to avoid the collision inherent to concatenating variable-length
+    # `app`/`projectId` strings without length prefixes.
     data_packed = b""
     for claim in claims:
-        data_packed += claim["app"].encode("utf-8")
-        data_packed += claim["projectId"].encode("utf-8")
-        data_packed += _hex_to_bytes(claim["claimId"])
+        data_packed = encode(
+            ["bytes", "string", "string", "bytes32"],
+            [data_packed, claim["app"], claim["projectId"], _hex_to_bytes(claim["claimId"])],
+        )
 
-    return to_hex(keccak(data_packed + _to_bytes32(chain_id)))
+    return to_hex(keccak(encode(["bytes", "uint256"], [data_packed, _int_like(chain_id)])))
 
 
 def signFinalizeClaimRequest(claims: Sequence[Dict[str, Any]], signer_or_private_key: Any, chain_id: Numeric) -> str:

@@ -266,6 +266,100 @@ type SignedOAuthInviteBundle struct {
 	Merkle          BatchInviteMerkleData    `json:"merkle"`
 }
 
+type PayoutSigningKeyNetworkType string
+
+const (
+	PayoutSigningKeyNetworkEthereum PayoutSigningKeyNetworkType = "ethereum"
+	PayoutSigningKeyNetworkSolana   PayoutSigningKeyNetworkType = "solana"
+)
+
+type PayoutSigningKeyAuthorizationData struct {
+	TransactionMax string `json:"transactionMax"`
+	TotalMax       string `json:"totalMax"`
+	Expiration     string `json:"expiration"`
+	Timestamp      string `json:"timestamp,omitempty"`
+}
+
+type PayoutSigningKeyAuthorization struct {
+	BatchHash       string                      `json:"batchHash"`
+	SigningKey      string                      `json:"signingKey"`
+	NetworkType     PayoutSigningKeyNetworkType `json:"networkType"`
+	TransactionMax  string                      `json:"transactionMax"`
+	TotalMax        string                      `json:"totalMax"`
+	Expiration      string                      `json:"expiration"`
+	Timestamp       string                      `json:"timestamp"`
+	AuthMessageHash string                      `json:"authMessageHash"`
+	Signature       string                      `json:"signature"`
+}
+
+type OpenOrganizationInviteInput struct {
+	Label                string
+	Scopes               []string
+	AllowedIdentityTypes []string
+	AllowedEmailDomains  []string
+	RequireKyc           bool
+	RequireTaxProfile    bool
+	MaxUses              int64
+	ExpiresAt            string
+	RedirectURI          string
+	State                string
+	StateParams          map[string]any
+	CreatedAt            int64
+	InviteNonce          string
+	InviteSecret         string
+}
+
+type OpenOrganizationInviteDraft struct {
+	ClientID             string
+	ConsentHost          string
+	Label                string
+	Scopes               []string
+	AllowedIdentityTypes []string
+	AllowedEmailDomains  []string
+	RequireKyc           bool
+	RequireTaxProfile    bool
+	MaxUses              int64
+	ExpiresAt            string
+	RedirectURI          string
+	State                string
+	StateParams          map[string]any
+	CreatedAt            int64
+	InviteNonce          string
+	InviteSecret         string
+}
+
+type SignedOpenOrganizationInvite struct {
+	ClientID             string            `json:"clientId"`
+	ConsentHost          string            `json:"consentHost"`
+	Label                string            `json:"label,omitempty"`
+	InviteNonce          string            `json:"inviteNonce"`
+	InviteSecret         string            `json:"inviteSecret"`
+	SecretHash           string            `json:"secretHash"`
+	PolicyHash           string            `json:"policyHash"`
+	Signature            string            `json:"signature"`
+	SignatureType        string            `json:"signatureType"`
+	SignatureMessage     string            `json:"signatureMessage"`
+	SignatureTimestamp   int64             `json:"signatureTimestamp"`
+	SignerAddress        string            `json:"signerAddress,omitempty"`
+	Scopes               []string          `json:"scopes"`
+	AllowedIdentityTypes []string          `json:"allowedIdentityTypes"`
+	AllowedEmailDomains  []string          `json:"allowedEmailDomains"`
+	RequireKyc           bool              `json:"requireKyc"`
+	RequireTaxProfile    bool              `json:"requireTaxProfile"`
+	MaxUses              int64             `json:"maxUses,omitempty"`
+	ExpiresAt            string            `json:"expiresAt,omitempty"`
+	RedirectURI          string            `json:"redirectUri,omitempty"`
+	State                string            `json:"state,omitempty"`
+	StateParams          map[string]any    `json:"stateParams,omitempty"`
+	Metadata             map[string]string `json:"metadata"`
+}
+
+type OpenOrganizationInviteCommitResult struct {
+	Raw        any            `json:"raw"`
+	Invite     map[string]any `json:"invite"`
+	InviteLink string         `json:"inviteLink,omitempty"`
+}
+
 type PayoutType string
 
 const (

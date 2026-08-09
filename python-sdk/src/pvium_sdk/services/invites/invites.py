@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import json
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from eth_account import Account
 from eth_account.messages import encode_defunct
@@ -14,6 +16,7 @@ from ...core.client import PviumHttpClient, PviumSdkConfig, resolvePviumConsentH
 from ...crypto.invite_merkle import (
     buildInviteMasterSecretMessage,
     createInviteNonce,
+    createInviteSecret,
     createRootNonce,
     deriveInviteSecret,
     deriveMasterSecret,
@@ -69,6 +72,40 @@ def _build_invite_state(state: Optional[str], state_params: Optional[Dict[str, A
             payload[key] = normalized
 
     return urlencode(payload)
+
+
+def _normalize_open_invite_identity_types(identity_types: Optional[List[str]]) -> List[str]:
+    return sorted({t.strip() for t in (identity_types or []) if t and t.strip()})
+
+
+def _normalize_open_invite_email_domains(domains: Optional[List[str]]) -> List[str]:
+    return sorted({d.strip().lower() for d in (domains or []) if d and d.strip()})
+
+
+def _compact_json(value: Any) -> str:
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
+def _sha256_hex(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _to_iso_millis(value: Any) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        dt = datetime.fromtimestamp(value / 1000, tz=timezone.utc)
+    else:
+        text = str(value).strip()
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        dt = datetime.fromisoformat(text)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
 
 
 class PviumInviteService:
@@ -258,6 +295,180 @@ class PviumInviteService:
     def createSignedAndCommit(self, input: Dict[str, Any], signer: Dict[str, Any], options: Optional[RequestOptions] = None) -> Any:
         bundle = self.createSignedBundle(input, signer)
         return self.commitBundle(bundle, options)
+
+    def createOpenOrganizationInvite(self, input: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        input = input or {}
+        client_id = self._require_client_id()
+        consent_host = self._require_consent_host()
+        created_at = int(input["createdAt"] if input.get("createdAt") is not None else int(time.time()))
+
+        return {
+            "clientId": client_id,
+            "consentHost": consent_host,
+            "label": input.get("label"),
+            "scopes": _normalize_scopes(input.get("scopes") or _default_scopes_for_chain("")),
+            "allowedIdentityTypes": _normalize_open_invite_identity_types(input.get("allowedIdentityTypes") or []),
+            "allowedEmailDomains": _normalize_open_invite_email_domains(input.get("allowedEmailDomains") or []),
+            "requireKyc": bool(input.get("requireKyc")),
+            "requireTaxProfile": bool(input.get("requireTaxProfile")),
+            "maxUses": input.get("maxUses"),
+            "expiresAt": _to_iso_millis(input.get("expiresAt")),
+            "redirectUri": input.get("redirectUri"),
+            "state": input.get("state"),
+            "stateParams": input.get("stateParams"),
+            "createdAt": created_at,
+            "inviteNonce": input.get("inviteNonce") or createInviteNonce(),
+            "inviteSecret": input.get("inviteSecret") or createInviteSecret(),
+        }
+
+    def signOpenOrganizationInvite(self, draft: Dict[str, Any], signer: Dict[str, Any]) -> Dict[str, Any]:
+        policy = self._build_open_organization_invite_policy(draft)
+        policy_json = _compact_json(policy)
+        message = "PVIUM_OPEN_ORGANIZATION_INVITE_V1" + "\n" + policy_json
+        signature_info = self._sign_open_invite_message(message, signer)
+
+        result: Dict[str, Any] = {
+            "clientId": draft["clientId"],
+            "consentHost": draft["consentHost"],
+            "label": draft.get("label"),
+            "inviteNonce": draft["inviteNonce"],
+            "inviteSecret": draft["inviteSecret"],
+            "secretHash": _sha256_hex(draft["inviteSecret"]),
+            "policyHash": _sha256_hex(policy_json),
+            "signature": signature_info["signature"],
+            "signatureType": signature_info["signatureType"],
+            "signatureMessage": message,
+            "signatureTimestamp": draft["createdAt"],
+            "signerAddress": signature_info.get("signerAddress"),
+            "scopes": policy["scopes"],
+            "allowedIdentityTypes": policy["allowedIdentityTypes"],
+            "allowedEmailDomains": policy["allowedEmailDomains"],
+            "requireKyc": policy["requireKyc"],
+            "requireTaxProfile": policy["requireTaxProfile"],
+            "redirectUri": draft.get("redirectUri"),
+            "state": draft.get("state"),
+            "stateParams": draft.get("stateParams"),
+            "metadata": {"version": "1", "encoding": "PVIUM_OPEN_ORGANIZATION_INVITE_V1"},
+        }
+        if policy["maxUses"] > 0:
+            result["maxUses"] = policy["maxUses"]
+        if policy["expiresAt"]:
+            result["expiresAt"] = policy["expiresAt"]
+        return result
+
+    def commitOpenOrganizationInvite(self, invite: Dict[str, Any], options: Optional[RequestOptions] = None) -> Dict[str, Any]:
+        exclude = {"inviteSecret", "consentHost", "redirectUri", "state", "stateParams"}
+        body = {k: v for k, v in invite.items() if k not in exclude}
+
+        response = self.http.request(
+            "POST",
+            f"/v1/client-apps/{quote(str(invite['clientId']), safe='')}/open-invites",
+            body=body,
+            options=options,
+        )
+        raw = self.http.parseResponseBody(response)
+        record = self._get_response_value(raw)
+        invite_id = ""
+        if isinstance(record, dict):
+            invite_id = str(record.get("id") or record.get("_id") or "")
+
+        invite_link = None
+        if invite_id:
+            invite_link = self._generate_open_organization_invite_link(
+                {
+                    "consentHost": invite["consentHost"],
+                    "clientId": invite["clientId"],
+                    "inviteId": invite_id,
+                    "inviteSecret": invite["inviteSecret"],
+                    "scopes": invite["scopes"],
+                    "redirectUri": invite.get("redirectUri"),
+                    "state": _build_invite_state(invite.get("state"), invite.get("stateParams"), None),
+                }
+            )
+
+        return {
+            "raw": raw,
+            "invite": {**record, "inviteLink": invite_link} if isinstance(record, dict) else None,
+            "inviteLink": invite_link,
+        }
+
+    def createSignedOpenOrganizationInvite(self, input: Dict[str, Any], signer: Dict[str, Any]) -> Dict[str, Any]:
+        return self.signOpenOrganizationInvite(self.createOpenOrganizationInvite(input), signer)
+
+    def createSignedAndCommitOpenOrganizationInvite(
+        self, input: Dict[str, Any], signer: Dict[str, Any], options: Optional[RequestOptions] = None
+    ) -> Dict[str, Any]:
+        invite = self.createSignedOpenOrganizationInvite(input, signer)
+        return self.commitOpenOrganizationInvite(invite, options)
+
+    def _build_open_organization_invite_policy(self, draft: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "appClientId": draft["clientId"],
+            "allowedEmailDomains": _normalize_open_invite_email_domains(draft.get("allowedEmailDomains") or []),
+            "allowedIdentityTypes": _normalize_open_invite_identity_types(draft.get("allowedIdentityTypes") or []),
+            "createdAt": int(draft.get("createdAt") or 0),
+            "expiresAt": _to_iso_millis(draft.get("expiresAt")) or "",
+            "inviteNonce": str(draft.get("inviteNonce")),
+            "maxUses": 0 if draft.get("maxUses") is None else int(draft["maxUses"]),
+            "requireKyc": bool(draft.get("requireKyc")),
+            "requireTaxProfile": bool(draft.get("requireTaxProfile")),
+            "scopes": _normalize_scopes(draft.get("scopes") or []),
+        }
+
+    def _sign_open_invite_message(self, message: str, signer: Dict[str, Any]) -> Dict[str, Any]:
+        is_evm = isinstance(signer, dict) and signer.get("chain") in ("base", "bsc")
+        if is_evm:
+            if signer.get("privateKey"):
+                account = Account.from_key(signer["privateKey"])
+                signature = account.sign_message(encode_defunct(text=message)).signature.hex()
+                return {
+                    "signature": _ensure_0x(signature),
+                    "signatureType": "evm-personal-sign",
+                    "signerAddress": account.address,
+                }
+
+            fn = signer.get("signInviteRoot") or signer.get("signMessage")
+            if not callable(fn):
+                raise RuntimeError("EVM invite signer requires signMessage(message)")
+            result = fn(message)
+            if isinstance(result, dict):
+                return {
+                    "signature": result["signature"],
+                    "signatureType": result.get("signatureType") or "evm-personal-sign",
+                    "signerAddress": result.get("signerAddress") or signer.get("signerAddress"),
+                }
+            return {
+                "signature": str(result),
+                "signatureType": "evm-personal-sign",
+                "signerAddress": signer.get("signerAddress"),
+            }
+
+        return self._sign_root_message(message, signer)
+
+    def _get_response_value(self, response: Any) -> Any:
+        if not isinstance(response, dict):
+            return None
+        if response.get("data") is not None:
+            return response["data"]
+        if response.get("value") is not None:
+            return response["value"]
+        return response
+
+    def _generate_open_organization_invite_link(self, params: Dict[str, Any]) -> str:
+        query: Dict[str, Any] = {
+            "client_id": params["clientId"],
+            "response_type": "code",
+            "scope": " ".join(_normalize_scopes(params["scopes"])),
+        }
+        if params.get("redirectUri"):
+            query["redirect_uri"] = params["redirectUri"]
+        if params.get("state"):
+            query["state"] = params["state"]
+
+        base = params["consentHost"].rstrip("/")
+        url = f"{base}/o/{quote(str(params['inviteId']), safe='')}?{urlencode(query)}"
+        url += f"#s={quote(str(params['inviteSecret']), safe='')}"
+        return url
 
     def _sign_message_for_master_secret(self, message: str, signer: Dict[str, Any]) -> Dict[str, Any]:
         chain = signer.get("chain")

@@ -1,10 +1,12 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -226,6 +228,343 @@ func (s *InviteService) CreateSignedAndCommit(ctx context.Context, input models.
 		return models.APIResponse[map[string]any]{}, err
 	}
 	return s.CommitBundle(ctx, signed, options)
+}
+
+// openOrganizationInvitePolicy is marshalled with fields in EXACT insertion order to
+// match the node SDK's JSON.stringify output used for the signed message and policyHash.
+type openOrganizationInvitePolicy struct {
+	AppClientID          string   `json:"appClientId"`
+	AllowedEmailDomains  []string `json:"allowedEmailDomains"`
+	AllowedIdentityTypes []string `json:"allowedIdentityTypes"`
+	CreatedAt            int64    `json:"createdAt"`
+	ExpiresAt            string   `json:"expiresAt"`
+	InviteNonce          string   `json:"inviteNonce"`
+	MaxUses              int64    `json:"maxUses"`
+	RequireKyc           bool     `json:"requireKyc"`
+	RequireTaxProfile    bool     `json:"requireTaxProfile"`
+	Scopes               []string `json:"scopes"`
+}
+
+const openOrganizationInviteEncoding = "PVIUM_OPEN_ORGANIZATION_INVITE_V1"
+
+func (s *InviteService) CreateOpenOrganizationInvite(input models.OpenOrganizationInviteInput) (models.OpenOrganizationInviteDraft, error) {
+	cfg := s.client.Config()
+	if strings.TrimSpace(cfg.ClientID) == "" {
+		return models.OpenOrganizationInviteDraft{}, errors.New("clientId is required for invite methods")
+	}
+	consentHost := strings.TrimRight(cfg.ConsentHost, "/")
+	if consentHost == "" {
+		return models.OpenOrganizationInviteDraft{}, errors.New("consentHost is required for invite methods")
+	}
+
+	createdAt := input.CreatedAt
+	if createdAt == 0 {
+		createdAt = time.Now().Unix()
+	}
+	scopes := input.Scopes
+	if len(scopes) == 0 {
+		scopes = defaultScopesForChain("")
+	}
+	expiresAt := ""
+	if strings.TrimSpace(input.ExpiresAt) != "" {
+		expiresAt = normalizeISOTimestamp(input.ExpiresAt)
+	}
+	inviteNonce := input.InviteNonce
+	if inviteNonce == "" {
+		generated, err := pvcrypto.CreateInviteNonce()
+		if err != nil {
+			return models.OpenOrganizationInviteDraft{}, err
+		}
+		inviteNonce = generated
+	}
+	inviteSecret := input.InviteSecret
+	if inviteSecret == "" {
+		generated, err := pvcrypto.CreateInviteSecret()
+		if err != nil {
+			return models.OpenOrganizationInviteDraft{}, err
+		}
+		inviteSecret = generated
+	}
+
+	return models.OpenOrganizationInviteDraft{
+		ClientID:             cfg.ClientID,
+		ConsentHost:          consentHost,
+		Label:                input.Label,
+		Scopes:               normalizeStringSet(scopes),
+		AllowedIdentityTypes: normalizeStringSet(input.AllowedIdentityTypes),
+		AllowedEmailDomains:  normalizeEmailDomains(input.AllowedEmailDomains),
+		RequireKyc:           input.RequireKyc,
+		RequireTaxProfile:    input.RequireTaxProfile,
+		MaxUses:              input.MaxUses,
+		ExpiresAt:            expiresAt,
+		RedirectURI:          input.RedirectURI,
+		State:                input.State,
+		StateParams:          input.StateParams,
+		CreatedAt:            createdAt,
+		InviteNonce:          inviteNonce,
+		InviteSecret:         inviteSecret,
+	}, nil
+}
+
+func (s *InviteService) SignOpenOrganizationInvite(draft models.OpenOrganizationInviteDraft, signer models.OAuthInviteSigner) (models.SignedOpenOrganizationInvite, error) {
+	policy := buildOpenOrganizationInvitePolicy(draft)
+	policyJSON, err := compactJSON(policy)
+	if err != nil {
+		return models.SignedOpenOrganizationInvite{}, err
+	}
+	message := openOrganizationInviteEncoding + "\n" + policyJSON
+
+	signature, signerAddress, err := signInviteMessage(signer, message, false)
+	if err != nil {
+		return models.SignedOpenOrganizationInvite{}, err
+	}
+	signatureType := "evm-personal-sign"
+	if strings.Contains(strings.ToLower(signer.Chain), "solana") {
+		signatureType = "solana-message"
+	}
+
+	maxUses := int64(0)
+	if policy.MaxUses > 0 {
+		maxUses = policy.MaxUses
+	}
+
+	return models.SignedOpenOrganizationInvite{
+		ClientID:             draft.ClientID,
+		ConsentHost:          draft.ConsentHost,
+		Label:                draft.Label,
+		InviteNonce:          draft.InviteNonce,
+		InviteSecret:         draft.InviteSecret,
+		SecretHash:           sha256Hex(draft.InviteSecret),
+		PolicyHash:           sha256Hex(policyJSON),
+		Signature:            signature,
+		SignatureType:        signatureType,
+		SignatureMessage:     message,
+		SignatureTimestamp:   draft.CreatedAt,
+		SignerAddress:        signerAddress,
+		Scopes:               policy.Scopes,
+		AllowedIdentityTypes: policy.AllowedIdentityTypes,
+		AllowedEmailDomains:  policy.AllowedEmailDomains,
+		RequireKyc:           policy.RequireKyc,
+		RequireTaxProfile:    policy.RequireTaxProfile,
+		MaxUses:              maxUses,
+		ExpiresAt:            policy.ExpiresAt,
+		RedirectURI:          draft.RedirectURI,
+		State:                draft.State,
+		StateParams:          draft.StateParams,
+		Metadata: map[string]string{
+			"version":  "1",
+			"encoding": openOrganizationInviteEncoding,
+		},
+	}, nil
+}
+
+func (s *InviteService) CommitOpenOrganizationInvite(ctx context.Context, invite models.SignedOpenOrganizationInvite, options *models.RequestOptions) (models.OpenOrganizationInviteCommitResult, error) {
+	body, err := openInviteCommitBody(invite)
+	if err != nil {
+		return models.OpenOrganizationInviteCommitResult{}, err
+	}
+	path := fmt.Sprintf("/client-apps/%s/open-invites", url.PathEscape(invite.ClientID))
+	raw, _, err := s.client.Do(ctx, transport.Request{Method: "POST", Path: path, Body: body, Options: options})
+	if err != nil {
+		return models.OpenOrganizationInviteCommitResult{}, err
+	}
+	parsed, err := transport.Decode[map[string]any](raw)
+	if err != nil {
+		return models.OpenOrganizationInviteCommitResult{}, err
+	}
+
+	record := getResponseValue(parsed)
+	inviteID := ""
+	if record != nil {
+		inviteID = firstNonEmpty(fmt.Sprint(record["id"]), fmt.Sprint(record["_id"]))
+		if inviteID == "<nil>" {
+			inviteID = ""
+		}
+	}
+
+	inviteLink := ""
+	if inviteID != "" {
+		inviteLink = generateOpenOrganizationInviteLink(
+			invite.ConsentHost,
+			invite.ClientID,
+			inviteID,
+			invite.InviteSecret,
+			invite.Scopes,
+			invite.RedirectURI,
+			buildStateParam(invite.State, invite.StateParams, ""),
+		)
+	}
+
+	result := models.OpenOrganizationInviteCommitResult{Raw: parsed, InviteLink: inviteLink}
+	if record != nil {
+		merged := map[string]any{}
+		for k, v := range record {
+			merged[k] = v
+		}
+		if inviteLink != "" {
+			merged["inviteLink"] = inviteLink
+		}
+		result.Invite = merged
+	}
+	return result, nil
+}
+
+func (s *InviteService) CreateSignedOpenOrganizationInvite(input models.OpenOrganizationInviteInput, signer models.OAuthInviteSigner) (models.SignedOpenOrganizationInvite, error) {
+	draft, err := s.CreateOpenOrganizationInvite(input)
+	if err != nil {
+		return models.SignedOpenOrganizationInvite{}, err
+	}
+	return s.SignOpenOrganizationInvite(draft, signer)
+}
+
+func (s *InviteService) CreateSignedAndCommitOpenOrganizationInvite(ctx context.Context, input models.OpenOrganizationInviteInput, signer models.OAuthInviteSigner, options *models.RequestOptions) (models.OpenOrganizationInviteCommitResult, error) {
+	invite, err := s.CreateSignedOpenOrganizationInvite(input, signer)
+	if err != nil {
+		return models.OpenOrganizationInviteCommitResult{}, err
+	}
+	return s.CommitOpenOrganizationInvite(ctx, invite, options)
+}
+
+func buildOpenOrganizationInvitePolicy(draft models.OpenOrganizationInviteDraft) openOrganizationInvitePolicy {
+	expiresAt := ""
+	if strings.TrimSpace(draft.ExpiresAt) != "" {
+		expiresAt = normalizeISOTimestamp(draft.ExpiresAt)
+	}
+	return openOrganizationInvitePolicy{
+		AppClientID:          draft.ClientID,
+		AllowedEmailDomains:  normalizeEmailDomains(draft.AllowedEmailDomains),
+		AllowedIdentityTypes: normalizeStringSet(draft.AllowedIdentityTypes),
+		CreatedAt:            draft.CreatedAt,
+		ExpiresAt:            expiresAt,
+		InviteNonce:          draft.InviteNonce,
+		MaxUses:              draft.MaxUses,
+		RequireKyc:           draft.RequireKyc,
+		RequireTaxProfile:    draft.RequireTaxProfile,
+		Scopes:               normalizeStringSet(draft.Scopes),
+	}
+}
+
+// compactJSON matches JS JSON.stringify: no HTML escaping and no trailing newline.
+func compactJSON(v any) (string, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return "", err
+	}
+	return strings.TrimRight(buf.String(), "\n"), nil
+}
+
+func openInviteCommitBody(invite models.SignedOpenOrganizationInvite) (map[string]any, error) {
+	raw, err := json.Marshal(invite)
+	if err != nil {
+		return nil, err
+	}
+	var body map[string]any
+	if err := json.Unmarshal(raw, &body); err != nil {
+		return nil, err
+	}
+	for _, key := range []string{"inviteSecret", "consentHost", "redirectUri", "state", "stateParams"} {
+		delete(body, key)
+	}
+	return body, nil
+}
+
+func getResponseValue(response map[string]any) map[string]any {
+	if response == nil {
+		return nil
+	}
+	if data, ok := response["data"].(map[string]any); ok {
+		return data
+	}
+	if value, ok := response["value"].(map[string]any); ok {
+		return value
+	}
+	return response
+}
+
+func defaultScopesForChain(chain string) []string {
+	scopes := []string{"read:user"}
+	lc := strings.ToLower(chain)
+	if strings.Contains(lc, "solana") {
+		scopes = append(scopes, "read:solana_wallet")
+	} else if lc != "" {
+		scopes = append(scopes, "read:ethereum_wallet")
+	}
+	return normalizeStringSet(scopes)
+}
+
+func normalizeStringSet(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeEmailDomains(values []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// normalizeISOTimestamp mirrors JS new Date(x).toISOString(): millisecond precision, Z suffix.
+func normalizeISOTimestamp(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	layouts := []string{
+		"2006-01-02T15:04:05.000Z07:00",
+		"2006-01-02T15:04:05.999999999Z07:00",
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, value); err == nil {
+			return t.UTC().Format("2006-01-02T15:04:05.000Z07:00")
+		}
+	}
+	return value
+}
+
+func generateOpenOrganizationInviteLink(consentHost, clientID, inviteID, inviteSecret string, scopes []string, redirectURI, state string) string {
+	u, _ := url.Parse(strings.TrimRight(consentHost, "/") + "/o/" + url.PathEscape(inviteID))
+	q := u.Query()
+	q.Set("client_id", clientID)
+	q.Set("response_type", "code")
+	q.Set("scope", strings.Join(normalizeStringSet(scopes), " "))
+	if redirectURI != "" {
+		q.Set("redirect_uri", redirectURI)
+	}
+	if state != "" {
+		q.Set("state", state)
+	}
+	u.RawQuery = q.Encode()
+	return u.String() + "#s=" + url.QueryEscape(inviteSecret)
 }
 
 func generateInviteMerkle(base models.BatchInviteMerkleData, identities []models.InviteIdentity, masterSecret string) (models.BatchInviteMerkleData, error) {

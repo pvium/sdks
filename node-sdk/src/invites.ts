@@ -14,13 +14,15 @@ import {
   deriveInviteSecret,
   deriveMasterSecret,
   generateBatchInviteMerkleDataV2,
+  normalizeOrgReferenceId,
   normalizeIdentityValue,
   validateIdentityValue,
   type BatchInviteMerkleDataV2,
   type InviteIdentityType,
+  type InviteSigningKeyRequest,
 } from "./invite-merkle";
 
-export type EvmInviteSigningChain = "base" | "bsc";
+export type EvmInviteSigningChain = "base" | "bsc" | "ethereum";
 export type InviteSigningChain = EvmInviteSigningChain | "solana";
 
 export type OAuthScope =
@@ -34,9 +36,10 @@ export type OAuthScope =
   | "read:ethereum_wallet"
   | "read:solana_wallet"
   | "read:legal_id"
-  | "read:tax_certificates"
+  | "read:tax_forms"
   | "read:batch_payment"
   | "write:batch_payment"
+  | "write:org"
   | "write:escrow_claim"
   | "read:escrow_earnings"
   | "write:escrow_account"
@@ -56,12 +59,19 @@ export type OAuthInviteStateParams = Record<
   string | number | boolean | null | undefined
 >;
 
+export interface OAuthRedirectUriInput {
+  redirectUri?: string;
+  redirectUrl?: string;
+  redirectURL?: string;
+  redirect_uri?: string;
+}
+
 export interface OAuthInviteBatchData {
   batchId: string;
   stateParams?: OAuthInviteStateParams;
 }
 
-export interface OAuthInviteBundleInput {
+export interface OAuthInviteBundleInput extends OAuthRedirectUriInput {
   identities: OAuthInviteIdentity[];
   scopes?: OAuthScope[];
   /**
@@ -73,9 +83,20 @@ export interface OAuthInviteBundleInput {
   chain?: InviteSigningChain | string;
   state?: string;
   stateParams?: OAuthInviteStateParams;
-  redirectUri?: string;
   createdAt?: number;
   rootNonce?: string;
+  /**
+   * Request a delegated transaction signing key to be registered on the
+   * invitee's org at acceptance time. Bound into the signed root message
+   * (PVIUM_INVITE_ROOT_V3/V4); one key per bundle.
+   */
+  signingKey?: InviteSigningKeyRequest;
+  /**
+   * Target a dedicated organization inside the invitee's account at
+   * acceptance, identified by hash(clientId, referenceId). Bound into the
+   * signed root message (PVIUM_INVITE_ROOT_V4).
+   */
+  orgReferenceId?: string;
 }
 
 export interface OAuthInviteBundleDraft {
@@ -91,6 +112,8 @@ export interface OAuthInviteBundleDraft {
   redirectUri?: string;
   createdAt?: number;
   rootNonce?: string;
+  signingKey?: InviteSigningKeyRequest;
+  orgReferenceId?: string;
 }
 
 export interface InviteMessageSignature {
@@ -110,7 +133,9 @@ type EvmOAuthInviteCallbackSigner = {
   signMasterSecret?: (
     message: string,
   ) => Promise<string | InviteMessageSignature>;
-  signInviteRoot?: (message: string) => Promise<string | InviteMessageSignature>;
+  signInviteRoot?: (
+    message: string,
+  ) => Promise<string | InviteMessageSignature>;
   signerAddress?: string;
 };
 
@@ -129,8 +154,7 @@ type SolanaOAuthInviteSigner = {
 };
 
 type EvmOAuthInviteSigner =
-  | EvmOAuthInvitePrivateKeySigner
-  | EvmOAuthInviteCallbackSigner;
+  EvmOAuthInvitePrivateKeySigner | EvmOAuthInviteCallbackSigner;
 
 export type OAuthInviteSigner = EvmOAuthInviteSigner | SolanaOAuthInviteSigner;
 
@@ -141,6 +165,9 @@ export interface SignedOAuthInviteBundle {
   batchInvite?: OAuthInviteBatchData;
   scopes: string[];
   chain?: InviteSigningChain | string;
+  state?: string;
+  stateParams?: OAuthInviteStateParams;
+  redirectUri?: string;
   masterSecret: string;
   root: {
     root: string;
@@ -148,13 +175,17 @@ export interface SignedOAuthInviteBundle {
     signature: string;
     signatureType: string;
     scopes: string[];
+    signingKey?: string;
+    signingKeyType?: string;
+    orgReferenceId?: string;
+    derivedOrgClientId?: string;
     signatureMessage: string;
     signatureTimestamp: number;
     signerAddress?: string;
     inviteCount: number;
     expiresAt?: string;
     metadata: {
-      version: "2";
+      version: "2" | "3" | "4";
       leafEncoding: "PVIUM_INVITE_LEAF_V2";
       signingChain?: string;
     };
@@ -215,16 +246,16 @@ export interface OAuthInviteCommitResult {
   alreadyAccepted: boolean;
 }
 
-export interface OpenOrganizationInviteInput {
+export interface OpenOrganizationInviteInput extends OAuthRedirectUriInput {
   label?: string;
   scopes?: OAuthScope[];
   allowedIdentityTypes?: string[];
+  requiredSocialIdentity?: string;
   allowedEmailDomains?: string[];
   requireKyc?: boolean;
   requireTaxProfile?: boolean;
   maxUses?: number;
   expiresAt?: string | Date;
-  redirectUri?: string;
   state?: string;
   stateParams?: OAuthInviteStateParams;
   createdAt?: number;
@@ -238,6 +269,7 @@ export interface OpenOrganizationInviteDraft {
   label?: string;
   scopes: string[];
   allowedIdentityTypes: string[];
+  requiredSocialIdentity?: string;
   allowedEmailDomains: string[];
   requireKyc: boolean;
   requireTaxProfile: boolean;
@@ -266,6 +298,7 @@ export interface SignedOpenOrganizationInvite {
   signerAddress?: string;
   scopes: string[];
   allowedIdentityTypes: string[];
+  requiredSocialIdentity?: string;
   allowedEmailDomains: string[];
   requireKyc: boolean;
   requireTaxProfile: boolean;
@@ -276,7 +309,7 @@ export interface SignedOpenOrganizationInvite {
   stateParams?: OAuthInviteStateParams;
   metadata: {
     version: "1";
-    encoding: "PVIUM_OPEN_ORGANIZATION_INVITE_V1";
+    encoding: "PVIUM_OPEN_INVITE_V1" | "PVIUM_OPEN_ORGANIZATION_INVITE_V1";
   };
 }
 
@@ -308,7 +341,9 @@ const defaultScopesForChain = (chain?: string): string[] => {
 const isEvmOAuthInviteSigner = (
   signer: OAuthInviteSigner,
 ): signer is EvmOAuthInviteSigner =>
-  signer.chain === "base" || signer.chain === "bsc";
+  signer.chain === "base" ||
+  signer.chain === "bsc" ||
+  signer.chain === "ethereum";
 
 const toHexString = (bytes: Uint8Array): string =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -363,6 +398,18 @@ const buildInviteState = (params: {
   return state.toString();
 };
 
+const resolveRedirectUri = (
+  input: OAuthRedirectUriInput,
+): string | undefined => {
+  const value =
+    input.redirectUri ??
+    input.redirectUrl ??
+    input.redirectURL ??
+    input.redirect_uri;
+  const redirectUri = typeof value === "string" ? value.trim() : "";
+  return redirectUri || undefined;
+};
+
 const getResponseItems = (response: unknown): unknown[] => {
   if (!response || typeof response !== "object") return [];
 
@@ -394,6 +441,27 @@ const normalizeOpenInviteEmailDomains = (domains: string[] = []) =>
     ),
   ).sort((a, b) => a.localeCompare(b));
 
+const normalizeOpenInviteRequiredSocialIdentity = (provider?: string) => {
+  const normalized = (provider || "").trim().toLowerCase();
+  if (!normalized) return "";
+
+  if (!["x", "discord", "telegram", "github"].includes(normalized)) {
+    throw new Error(
+      "requiredSocialIdentity must be one of x, discord, telegram, or github",
+    );
+  }
+
+  return normalized;
+};
+
+const resolveOpenInviteRequiredSocialIdentity = (input: {
+  requiredSocialIdentity?: string;
+  allowedIdentityTypes?: string[];
+}) =>
+  normalizeOpenInviteRequiredSocialIdentity(
+    input.requiredSocialIdentity || input.allowedIdentityTypes?.[0],
+  );
+
 export class PviumInviteService {
   constructor(
     private readonly http: PviumHttpClient,
@@ -404,6 +472,7 @@ export class PviumInviteService {
     const clientId = this.requireClientId();
     const consentHost = this.requireConsentHost();
     const batchId = input.batchInvite?.batchId ?? input.batchId;
+    const redirectUri = resolveRedirectUri(input);
 
     if (!input.identities.length) {
       throw new Error("At least one invite identity is required");
@@ -446,9 +515,11 @@ export class PviumInviteService {
         ...(input.batchInvite?.stateParams ?? {}),
         ...(input.stateParams ?? {}),
       },
-      redirectUri: input.redirectUri,
+      redirectUri,
       createdAt: input.createdAt,
       rootNonce: input.rootNonce,
+      signingKey: input.signingKey,
+      orgReferenceId: normalizeOrgReferenceId(input.orgReferenceId),
     };
   }
 
@@ -487,6 +558,8 @@ export class PviumInviteService {
       scopes,
       createdAt,
       rootNonce,
+      signingKey: bundle.signingKey,
+      orgReferenceId: bundle.orgReferenceId,
       invites: inviteEntries,
     });
 
@@ -523,7 +596,9 @@ export class PviumInviteService {
         identityValue: invite.identityValue,
         identityCommitment: invite.identityCommitment,
         secretHash: invite.secretHash,
-        leafVersion: merkle.version,
+        // Leaf encoding is V2 regardless of root version — V3 only adds
+        // signing-key lines to the root message.
+        leafVersion: "2" as const,
         inviteNonce: invite.inviteNonce,
         inviteSecret: invite.inviteSecret,
         inviteLink,
@@ -552,6 +627,9 @@ export class PviumInviteService {
       batchInvite: bundle.batchInvite,
       scopes: merkle.scopes,
       chain: bundle.chain,
+      state: bundle.state,
+      stateParams: bundle.stateParams,
+      redirectUri: bundle.redirectUri,
       masterSecret,
       root: {
         root: merkle.root,
@@ -559,6 +637,10 @@ export class PviumInviteService {
         signature: rootSignature.signature,
         signatureType: rootSignature.signatureType,
         scopes: merkle.scopes,
+        signingKey: merkle.signingKey,
+        signingKeyType: merkle.signingKeyType,
+        orgReferenceId: merkle.orgReferenceId,
+        derivedOrgClientId: merkle.derivedOrgClientId,
         signatureMessage: merkle.signatureMessage,
         signatureTimestamp: merkle.createdAt,
         signerAddress: rootSignature.signerAddress,
@@ -581,12 +663,28 @@ export class PviumInviteService {
 
   async commitBundle(
     bundle: SignedOAuthInviteBundle,
-    options?: RequestOptions,
+    options?: RequestOptions & {
+      /**
+       * Commit the invites onto a different org than the bundle's OAuth
+       * client — e.g. a payer's derived org (`subcli_…`) while the leaves
+       * stay bound to this SDK's clientId so the consent/OAuth flow is
+       * unchanged. The server authorizes the commit by the root signature:
+       * the signer must be the target org's owner wallet or a delegated
+       * transaction signing key registered on it.
+       */
+      commitClientAppId?: string;
+    },
   ): Promise<OAuthInviteCommitResult> {
     const batchId = bundle.batchInvite?.batchId || bundle.batchId;
+    const commitClientAppId = options?.commitClientAppId || bundle.clientId;
     const path = batchId
       ? `/v1/batch-payments/${encodeURIComponent(batchId)}/invites`
-      : `/v1/client-apps/${encodeURIComponent(bundle.clientId)}/invites`;
+      : `/v1/client-apps/${encodeURIComponent(commitClientAppId)}/invites`;
+    const state = buildInviteState({
+      state: bundle.state,
+      stateParams: bundle.stateParams,
+      batchId,
+    });
 
     const response = await this.http.request({
       method: "POST",
@@ -594,7 +692,10 @@ export class PviumInviteService {
       body: {
         root: bundle.root,
         invites: bundle.invites.map(
-          ({ inviteSecret, inviteLink, ...invite }) => invite,
+          ({ inviteSecret, inviteLink, ...invite }) => ({
+            ...invite,
+            ...(bundle.redirectUri ? { redirectUri: bundle.redirectUri } : {}),
+          }),
         ),
       },
       options,
@@ -620,6 +721,8 @@ export class PviumInviteService {
             consentHost: bundle.consentHost,
             inviteId,
             inviteSecret,
+            redirectUri: bundle.redirectUri,
+            state,
           }),
         };
       },
@@ -708,6 +811,9 @@ export class PviumInviteService {
     const clientId = this.requireClientId();
     const consentHost = this.requireConsentHost();
     const createdAt = input.createdAt ?? Math.floor(Date.now() / 1000);
+    const redirectUri = resolveRedirectUri(input);
+    const requiredSocialIdentity =
+      resolveOpenInviteRequiredSocialIdentity(input);
 
     return {
       clientId,
@@ -717,6 +823,7 @@ export class PviumInviteService {
       allowedIdentityTypes: normalizeOpenInviteIdentityTypes(
         input.allowedIdentityTypes ?? [],
       ),
+      requiredSocialIdentity,
       allowedEmailDomains: normalizeOpenInviteEmailDomains(
         input.allowedEmailDomains ?? [],
       ),
@@ -726,7 +833,7 @@ export class PviumInviteService {
       expiresAt: input.expiresAt
         ? new Date(input.expiresAt).toISOString()
         : undefined,
-      redirectUri: input.redirectUri,
+      redirectUri,
       state: input.state,
       stateParams: input.stateParams,
       createdAt,
@@ -751,17 +858,18 @@ export class PviumInviteService {
       inviteNonce: draft.inviteNonce,
       inviteSecret: draft.inviteSecret,
       secretHash: sha256(draft.inviteSecret),
-      policyHash: sha256(JSON.stringify(policy)),
+      policyHash: sha256(signatureMessage),
       signature: signature.signature,
       signatureType: signature.signatureType,
       signatureMessage,
       signatureTimestamp: draft.createdAt,
       signerAddress: signature.signerAddress,
       scopes: policy.scopes,
-      allowedIdentityTypes: policy.allowedIdentityTypes,
+      allowedIdentityTypes: draft.allowedIdentityTypes,
+      requiredSocialIdentity: policy.requiredSocialIdentity,
       allowedEmailDomains: policy.allowedEmailDomains,
-      requireKyc: policy.requireKyc,
-      requireTaxProfile: policy.requireTaxProfile,
+      requireKyc: draft.requireKyc,
+      requireTaxProfile: draft.requireTaxProfile,
       maxUses: policy.maxUses > 0 ? policy.maxUses : undefined,
       expiresAt: policy.expiresAt || undefined,
       redirectUri: draft.redirectUri,
@@ -769,7 +877,7 @@ export class PviumInviteService {
       stateParams: draft.stateParams,
       metadata: {
         version: "1",
-        encoding: "PVIUM_OPEN_ORGANIZATION_INVITE_V1",
+        encoding: "PVIUM_OPEN_INVITE_V1",
       },
     };
   }
@@ -778,8 +886,26 @@ export class PviumInviteService {
     invite: SignedOpenOrganizationInvite,
     options?: RequestOptions,
   ): Promise<OpenOrganizationInviteCommitResult> {
-    const { inviteSecret, consentHost, redirectUri, state, stateParams, ...body } =
-      invite;
+    const { inviteSecret, consentHost, state, stateParams } = invite;
+    const redirectUri = invite.redirectUri;
+    const body = {
+      label: invite.label,
+      inviteNonce: invite.inviteNonce,
+      secretHash: invite.secretHash,
+      policyHash: invite.policyHash,
+      signature: invite.signature,
+      signatureType: invite.signatureType,
+      signatureMessage: invite.signatureMessage,
+      signatureTimestamp: invite.signatureTimestamp,
+      signerAddress: invite.signerAddress,
+      scopes: invite.scopes,
+      requiredSocialIdentity: invite.requiredSocialIdentity,
+      allowedEmailDomains: invite.allowedEmailDomains,
+      maxUses: invite.maxUses,
+      expiresAt: invite.expiresAt,
+      redirectUri,
+      metadata: invite.metadata,
+    };
     const response = await this.http.request({
       method: "POST",
       path: `/v1/client-apps/${encodeURIComponent(invite.clientId)}/open-invites`,
@@ -836,9 +962,7 @@ export class PviumInviteService {
       allowedEmailDomains: normalizeOpenInviteEmailDomains(
         draft.allowedEmailDomains,
       ),
-      allowedIdentityTypes: normalizeOpenInviteIdentityTypes(
-        draft.allowedIdentityTypes,
-      ),
+      requiredSocialIdentity: resolveOpenInviteRequiredSocialIdentity(draft),
       createdAt: Number(draft.createdAt || 0),
       expiresAt: draft.expiresAt ? new Date(draft.expiresAt).toISOString() : "",
       inviteNonce: draft.inviteNonce,
@@ -846,8 +970,6 @@ export class PviumInviteService {
         draft.maxUses === undefined || draft.maxUses === null
           ? 0
           : Number(draft.maxUses),
-      requireKyc: !!draft.requireKyc,
-      requireTaxProfile: !!draft.requireTaxProfile,
       scopes: normalizeScopes(draft.scopes || []),
     };
   }
@@ -855,9 +977,16 @@ export class PviumInviteService {
   private buildOpenOrganizationInvitePolicyMessage(
     policy: Record<string, unknown>,
   ): string {
-    return ["PVIUM_OPEN_ORGANIZATION_INVITE_V1", JSON.stringify(policy)].join(
-      "\n",
-    );
+    return [
+      "PVIUM_OPEN_INVITE_V1",
+      "version=1",
+      `appClientId=${policy.appClientId}`,
+      `inviteNonce=${policy.inviteNonce}`,
+      `scopes=${((policy.scopes as string[]) || []).join(" ")}`,
+      `maxUses=${policy.maxUses}`,
+      `createdAt=${policy.createdAt}`,
+      `expiresAt=${policy.expiresAt}`,
+    ].join("\n");
   }
 
   private getResponseValue(response: unknown): unknown {
@@ -896,7 +1025,9 @@ export class PviumInviteService {
     }
 
     if (signer.chain !== "solana") {
-      throw new Error("OAuth invite signer chain must be base, bsc, or solana");
+      throw new Error(
+        "OAuth invite signer chain must be base, bsc, ethereum, or solana",
+      );
     }
 
     const encoded = new TextEncoder().encode(message);
@@ -958,7 +1089,9 @@ export class PviumInviteService {
     }
 
     if (signer.chain !== "solana") {
-      throw new Error("OAuth invite signer chain must be base, bsc, or solana");
+      throw new Error(
+        "OAuth invite signer chain must be base, bsc, ethereum, or solana",
+      );
     }
 
     const encoded = new TextEncoder().encode(message);
@@ -1027,11 +1160,17 @@ export class PviumInviteService {
     consentHost: string;
     inviteId: string;
     inviteSecret: string;
+    redirectUri?: string;
+    state?: string;
   }): string {
     const authUrl = new URL(
       `/i/${encodeURIComponent(params.inviteId)}`,
       normalizeConsentHost(params.consentHost),
     );
+    if (params.redirectUri) {
+      authUrl.searchParams.set("redirect_uri", params.redirectUri);
+    }
+    if (params.state) authUrl.searchParams.set("state", params.state);
     authUrl.hash = `s=${encodeURIComponent(params.inviteSecret)}`;
     return authUrl.toString();
   }

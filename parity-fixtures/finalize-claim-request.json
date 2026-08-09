@@ -1,0 +1,20 @@
+{
+  "comment": "Corrected abi.encode form matching SmartEscrowFactory.finalizeClaim and backend createFinalizeClaimSignature. Replaces the legacy collision-prone encodePacked form.",
+  "privateKey": "0x59c6995e998f97a5a004497e5daaaa853d873599e62e568a0a7d3a57c5fd8d0d",
+  "signer": "0xdcabd312abefde67cf80e71f1cba08005490828f",
+  "chainId": 8453,
+  "claims": [
+    {
+      "app": "app_one",
+      "projectId": "proj_alpha",
+      "claimId": "0x1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "app": "app_two",
+      "projectId": "proj_beta",
+      "claimId": "0x2222222222222222222222222222222222222222222222222222222222222222"
+    }
+  ],
+  "messageHash": "0xfff070b2364a1c7a9a47b16c28a47d048fd5d23f5f1c0d3853a8a45e38cc5b4d",
+  "signature": "0xbafdf6cfcda685cc0904222eb7f9ab0df742e2846992898fc44a35b842aefb7d171dd324b53507f985eb9214d112d649097ae86aaa65e2c4fce73dac63d7bc011b"
+}

@@ -4,7 +4,7 @@ Pvium provides programmable zero-custody stablecoin payments for the global gig 
 
 This SDK provides typed access to Pvium APIs and helpers for generating signed OAuth invite links, including Merkle-root-backed invite bundles for invite and batch payment workflows.
 
-- Developer documentation: https://pvium.gitbook.io/documentation
+- Developer documentation: https://docs.pvium.com
 - Pvium website: https://pvium.com
 - Pvium sandbox: https://sandbox.pvium.com
 
@@ -446,20 +446,20 @@ Generated links use `/oauth2/authorize` and include the standard OAuth values pl
 
 Use these scope values in the `scopes` array when creating OAuth invite bundles.
 
-| Category       | Scope                        | Description                                                   |
-| -------------- | ---------------------------- | ------------------------------------------------------------- |
-| Invoices       | `read:invoice`               | Read invoices created by this app.                            |
-| Invoices       | `write:invoice`              | Create and update invoices for this app.                      |
-| Invoices       | `read:accepted_invoice`      | Read invoices accepted by authorized users.                   |
-| Invoices       | `write:accepted_invoice`     | Create and update accepted invoice records.                   |
-| User           | `read:user`                  | Read the authorized user basic profile (handle, email, name). |
-| User           | `read:business_profile`      | Read business profiles linked to the authorized user.         |
-| User           | `write:business_profile`     | Create and update business profiles.                          |
-| Identity       | `read:legal_id`              | Read verified legal name, address, and country.               |
-| Wallets        | `read:ethereum_wallet`       | Read authorized wallet details.                               |
-| Wallets        | `read:solana_wallet`         | Read authorized Solana wallet details.                        |
-| Batch Payments | `read:batch_payment`         | Read batch payment records.                                   |
-| Batch Payments | `write:batch_payment`        | Create and update batch payments.                             |
+| Category       | Scope                    | Description                                                   |
+| -------------- | ------------------------ | ------------------------------------------------------------- |
+| Invoices       | `read:invoice`           | Read invoices created by this app.                            |
+| Invoices       | `write:invoice`          | Create and update invoices for this app.                      |
+| Invoices       | `read:accepted_invoice`  | Read invoices accepted by authorized users.                   |
+| Invoices       | `write:accepted_invoice` | Create and update accepted invoice records.                   |
+| User           | `read:user`              | Read the authorized user basic profile (handle, email, name). |
+| User           | `read:business_profile`  | Read business profiles linked to the authorized user.         |
+| User           | `write:business_profile` | Create and update business profiles.                          |
+| Identity       | `read:legal_id`          | Read verified legal name, address, and country.               |
+| Wallets        | `read:ethereum_wallet`   | Read authorized wallet details.                               |
+| Wallets        | `read:solana_wallet`     | Read authorized Solana wallet details.                        |
+| Batch Payments | `read:batch_payment`     | Read batch payment records.                                   |
+| Batch Payments | `write:batch_payment`    | Create and update batch payments.                             |
 
 ### App Invite Example
 

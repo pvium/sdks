@@ -279,3 +279,90 @@ test("finds app invites by identity through the app-invites endpoint", async () 
   assert.equal(result.accepted, true);
   assert.equal(result.invite.id, "invite_1");
 });
+
+test("binds a delegated signing key into the V3 root message", async () => {
+  const sdk = PviumSdk.init({
+    baseUrl: "http://localhost:4005/v1",
+    consentHost: "http://localhost:3000",
+    clientId: "app_test",
+    apiKey: "pk_test_dummy",
+  });
+
+  const signingKeyAddress = "0xAb5801a7D398351b8bE11C439e05C5B3259aeC9B";
+
+  const bundle = sdk.invites.createBundle({
+    identities: [{ type: "github", value: "octocat" }],
+    scopes: ["read:user", "write:batch_payment", "write:business_profile"],
+    chain: "ethereum",
+    signingKey: { publicKey: signingKeyAddress, keyType: "ethereum" },
+  });
+
+  const signed = await sdk.invites.signBundle(bundle, {
+    chain: "ethereum",
+    privateKey: TEST_PRIVATE_KEY,
+  });
+
+  assert.equal(signed.root.metadata.version, "3");
+  assert.equal(signed.root.signingKey, signingKeyAddress.toLowerCase());
+  assert.equal(signed.root.signingKeyType, "ethereum");
+  // Leaf encoding is untouched by the root version bump.
+  assert.equal(signed.invites[0].leafVersion, "2");
+
+  const messageLines = signed.root.signatureMessage.split("\n");
+  assert.equal(messageLines[0], "PVIUM_INVITE_ROOT_V3");
+  assert.equal(messageLines[1], "version=3");
+  assert.ok(
+    messageLines.includes(`signingKey=${signingKeyAddress.toLowerCase()}`),
+  );
+  assert.ok(messageLines.includes("signingKeyType=ethereum"));
+
+  const recovered = verifyMessage(
+    signed.root.signatureMessage,
+    signed.root.signature,
+  );
+  assert.equal(recovered, TEST_ADDRESS);
+
+  // Proof verification passes when the declared key matches the signed root
+  // message, and fails when a different key is claimed.
+  const { verifyBatchInviteProofV2 } = require("../dist/index.js");
+  const invite = signed.invites[0];
+  const okVerification = verifyBatchInviteProofV2({
+    appClientId: "app_test",
+    identityType: "github",
+    identityValue: "octocat",
+    inviteNonce: invite.inviteNonce,
+    inviteSecret: invite.inviteSecret,
+    defaultPayoutAmount: invite.defaultPayoutAmount,
+    expiresAt: invite.expiresAt,
+    leaf: invite.leaf,
+    proof: invite.proof,
+    root: signed.root.root,
+    signatureMessage: signed.root.signatureMessage,
+    signature: signed.root.signature,
+    signatureType: signed.root.signatureType,
+    signerAddress: signed.root.signerAddress,
+    signingKey: signingKeyAddress,
+    signingKeyType: "ethereum",
+  });
+  assert.equal(okVerification.valid, true);
+
+  const swappedVerification = verifyBatchInviteProofV2({
+    appClientId: "app_test",
+    identityType: "github",
+    identityValue: "octocat",
+    inviteNonce: invite.inviteNonce,
+    inviteSecret: invite.inviteSecret,
+    defaultPayoutAmount: invite.defaultPayoutAmount,
+    expiresAt: invite.expiresAt,
+    leaf: invite.leaf,
+    proof: invite.proof,
+    root: signed.root.root,
+    signatureMessage: signed.root.signatureMessage,
+    signature: signed.root.signature,
+    signatureType: signed.root.signatureType,
+    signerAddress: signed.root.signerAddress,
+    signingKey: "0x00000000000000000000000000000000DeaDBeef",
+    signingKeyType: "ethereum",
+  });
+  assert.equal(swappedVerification.valid, false);
+});

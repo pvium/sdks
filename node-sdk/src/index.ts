@@ -3,8 +3,14 @@ import { PviumHttpClient, PviumSdkConfig } from "./client";
 import { PviumInviteService } from "./invites";
 import { PviumOAuth } from "./oauth";
 import { PviumPayoutService } from "./payout";
-export { PviumApiError } from "./client";
-export type { PviumSdkConfig } from "./client";
+export {
+  PviumApiError,
+  getPviumAuthErrorCode,
+  isAuthorizationRevokedError,
+  isAuthorizationSupersededError,
+  isTokenExpiredError,
+} from "./client";
+export type { PviumAuthErrorCode, PviumSdkConfig } from "./client";
 export type {
   CreateInvoiceData,
   CreateInvoiceRequest,
@@ -65,11 +71,16 @@ export {
   createInviteNonce,
   createInviteSecret,
   createRootNonce,
+  DERIVED_ORG_CLIENT_ID_DOMAIN_V2,
+  DERIVED_ORG_CLIENT_ID_PREFIX,
   deriveInviteSecret,
   deriveMasterSecret,
+  deriveOrgClientId,
   detectInviteIdentityType,
   generateBatchInviteMerkleDataV2,
+  normalizeOrgReferenceId,
   normalizeIdentityValue,
+  normalizeSigningKeyRequest,
   SUPPORTED_INVITE_IDENTITY_TYPES,
   validateIdentityValue,
   verifyBatchInviteProofV2,
@@ -89,6 +100,7 @@ export type {
   BatchInviteProofVerificationInputV2,
   BatchInviteProofVerificationResultV2,
   InviteIdentityType,
+  InviteSigningKeyRequest,
 } from "./invite-merkle";
 export { PviumInviteService } from "./invites";
 export {
