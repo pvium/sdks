@@ -8,6 +8,7 @@ class RequestOptions(TypedDict, total=False):
     apiKey: str
     headers: Dict[str, str]
     skipApiKey: bool
+    commitClientAppId: str
 
 
 class ApiMeta(TypedDict, total=False):

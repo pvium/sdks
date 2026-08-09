@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/pvium/sdks/go-sdk/config"
+	pvcrypto "github.com/pvium/sdks/go-sdk/crypto"
 	"github.com/pvium/sdks/go-sdk/models"
 	"github.com/pvium/sdks/go-sdk/transport"
 )
@@ -198,6 +199,128 @@ func TestInvitesSupportsSeparateMasterAndRootSigners(t *testing.T) {
 	}
 	if signed.Root.SignerAddress != "0x0000000000000000000000000000000000000003" || signed.Root.Signature != "0xroot" {
 		t.Fatalf("root signer mismatch: %+v", signed.Root)
+	}
+}
+
+func TestInvitesV4RootCarriesDerivedOrgAndSigningKey(t *testing.T) {
+	t.Parallel()
+
+	service := NewInviteService(transport.NewHTTPClient(config.Config{
+		BaseURL:     "http://localhost:4005/v1",
+		ConsentHost: "http://localhost:3000",
+		ClientID:    "app_test",
+		APIKey:      "pk_test_dummy",
+	}))
+	bundle, err := service.CreateBundle(models.OAuthInviteBundleInput{
+		Identities: []models.InviteIdentity{{Type: models.InviteIdentityGitHub, Value: "octocat"}},
+		Scopes:     []string{"read:user", "read:github"},
+		Chain:      "base",
+		SigningKey: &models.InviteSigningKeyRequest{
+			PublicKey: "0x00000000000000000000000000000000000000AA",
+			KeyType:   "ethereum",
+		},
+		OrgReferenceID: "maintainer-ref-1",
+	})
+	if err != nil {
+		t.Fatalf("create bundle: %v", err)
+	}
+	signed, err := service.SignBundle(bundle, models.OAuthInviteSigner{Chain: "base", PrivateKey: inviteTestPrivateKey})
+	if err != nil {
+		t.Fatalf("sign bundle: %v", err)
+	}
+	derived, err := pvcrypto.DeriveOrgClientID("app_test", "maintainer-ref-1")
+	if err != nil {
+		t.Fatalf("derive org client id: %v", err)
+	}
+
+	if signed.Root.Metadata["version"] != "4" || signed.Merkle.Version != "4" {
+		t.Fatalf("expected V4 root, got root=%+v merkle=%+v", signed.Root.Metadata, signed.Merkle.Version)
+	}
+	if signed.Root.OrgReferenceID != "maintainer-ref-1" || signed.Root.DerivedOrgClientID != derived {
+		t.Fatalf("derived org metadata mismatch: %+v", signed.Root)
+	}
+	if signed.Root.SigningKey != "0x00000000000000000000000000000000000000aa" || signed.Root.SigningKeyType != "ethereum" {
+		t.Fatalf("signing key metadata mismatch: %+v", signed.Root)
+	}
+	lines := strings.Split(signed.Root.SignatureMessage, "\n")
+	requiredLines := []string{
+		"PVIUM_INVITE_ROOT_V4",
+		"version=4",
+		"orgReferenceId=maintainer-ref-1",
+		"signingKey=0x00000000000000000000000000000000000000aa",
+		"signingKeyType=ethereum",
+	}
+	for _, expected := range requiredLines {
+		found := false
+		for _, line := range lines {
+			if line == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("signature message missing %q:\n%s", expected, signed.Root.SignatureMessage)
+		}
+	}
+	if signed.Invites[0].LeafVersion != "2" {
+		t.Fatalf("leaf version should remain V2, got %s", signed.Invites[0].LeafVersion)
+	}
+}
+
+func TestInvitesSigningKeyOnlyEmitsV3AndPlainBundleKeepsV2(t *testing.T) {
+	t.Parallel()
+
+	service := NewInviteService(transport.NewHTTPClient(config.Config{
+		BaseURL:     "http://localhost:4005/v1",
+		ConsentHost: "http://localhost:3000",
+		ClientID:    "app_test",
+		APIKey:      "pk_test_dummy",
+	}))
+	withKey, err := service.CreateSignedBundle(models.OAuthInviteBundleInput{
+		Identities: []models.InviteIdentity{{Type: models.InviteIdentityGitHub, Value: "octocat"}},
+		Scopes:     []string{"read:user"},
+		Chain:      "base",
+		SigningKey: &models.InviteSigningKeyRequest{
+			PublicKey: "0x00000000000000000000000000000000000000aa",
+			KeyType:   "ethereum",
+		},
+	}, models.OAuthInviteSigner{Chain: "base", PrivateKey: inviteTestPrivateKey})
+	if err != nil {
+		t.Fatalf("sign bundle with key: %v", err)
+	}
+	if withKey.Root.Metadata["version"] != "3" || !strings.HasPrefix(withKey.Root.SignatureMessage, "PVIUM_INVITE_ROOT_V3") {
+		t.Fatalf("expected V3 root, got %+v", withKey.Root)
+	}
+
+	plain, err := service.CreateSignedBundle(models.OAuthInviteBundleInput{
+		Identities: []models.InviteIdentity{{Type: models.InviteIdentityGitHub, Value: "octocat"}},
+		Scopes:     []string{"read:user"},
+		Chain:      "base",
+	}, models.OAuthInviteSigner{Chain: "base", PrivateKey: inviteTestPrivateKey})
+	if err != nil {
+		t.Fatalf("sign plain bundle: %v", err)
+	}
+	if plain.Root.Metadata["version"] != "2" || !strings.HasPrefix(plain.Root.SignatureMessage, "PVIUM_INVITE_ROOT_V2") {
+		t.Fatalf("expected V2 root, got %+v", plain.Root)
+	}
+}
+
+func TestCreateBundleRejectsMalformedOrgReferenceID(t *testing.T) {
+	t.Parallel()
+
+	service := NewInviteService(transport.NewHTTPClient(config.Config{
+		BaseURL:     "https://api-sandbox.pvium.com/v1",
+		ConsentHost: "https://sandbox.pvium.com",
+		ClientID:    "client_123",
+	}))
+	_, err := service.CreateBundle(models.OAuthInviteBundleInput{
+		Identities:     []models.InviteIdentity{{Type: models.InviteIdentityGitHub, Value: "octocat"}},
+		Scopes:         []string{"read:user"},
+		Chain:          "base",
+		OrgReferenceID: "not valid!",
+	})
+	if err == nil || !strings.Contains(err.Error(), "orgReferenceId") {
+		t.Fatalf("expected orgReferenceId error, got %v", err)
 	}
 }
 
