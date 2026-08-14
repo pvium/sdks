@@ -83,6 +83,49 @@ test("getAccessTokenFromRefreshToken refreshes through the OAuth token endpoint"
   });
 });
 
+test("getAuthorizationStatus sends access token as bearer auth", async () => {
+  const { sdk, requests } = createMockSdk({
+    fetchFn: async (url, init) => {
+      requests.push({ url, init });
+      return new Response(
+        JSON.stringify({
+          meta: { statusCode: 200, success: true },
+          data: {
+            authorization: {
+              id: "auth_1",
+              isActive: false,
+              inactiveReason: "pending_aml",
+              status: "pending_aml",
+              pendingKyc: false,
+              pendingAml: true,
+            },
+            scopes: ["read:user"],
+            expiresAt: "2026-08-11T20:34:45.506Z",
+            tokenType: "Bearer",
+            app: {
+              id: "app_1",
+              clientId: "app_test",
+              name: "Test App",
+            },
+          },
+        }),
+        { headers: { "content-type": "application/json" } },
+      );
+    },
+  });
+
+  const status = await sdk.oauth.getAuthorizationStatus("access_token");
+
+  assert.equal(
+    requests[0].url,
+    "https://api.example.test/v1/client-apps/oauth2/authorization/status",
+  );
+  assert.equal(requests[0].init.method, "GET");
+  assert.equal(requests[0].init.headers.Authorization, "Bearer access_token");
+  assert.equal(requests[0].init.headers["x-api-key"], undefined);
+  assert.equal(status.data.authorization.status, "pending_aml");
+});
+
 test("refreshAccessToken rejects non-2xx responses with PviumApiError", async () => {
   const { sdk } = createMockSdk({
     fetchFn: async () =>
