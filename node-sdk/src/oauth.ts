@@ -1,5 +1,6 @@
 import { PviumHttpClient, PviumSdkConfig } from "./client";
 import {
+  OAuthAuthorizationStatusResponse,
   OAuthTokenResponse,
   OAuthUserInfoResponse,
   RequestOptions,
@@ -74,6 +75,24 @@ export class PviumOAuth {
     options?: RequestOptions,
   ): Promise<OAuthTokenResponse> {
     return this.refreshAccessToken(input, options);
+  }
+
+  async getAuthorizationStatus(
+    accessToken: string,
+    options?: Omit<RequestOptions, "accessToken">,
+  ): Promise<OAuthAuthorizationStatusResponse> {
+    const response = await this.http.request({
+      method: "GET",
+      path: "/v1/client-apps/oauth2/authorization/status",
+      options: {
+        ...options,
+        accessToken,
+      },
+    });
+
+    return this.http.parseResponseBody<OAuthAuthorizationStatusResponse>(
+      response,
+    );
   }
 
   async getUserInfo(options?: RequestOptions): Promise<OAuthUserInfoResponse> {

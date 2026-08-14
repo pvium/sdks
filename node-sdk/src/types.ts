@@ -20,6 +20,34 @@ export interface OAuthTokenResponse {
   data: OAuthTokenData;
 }
 
+export interface OAuthAuthorizationStatus {
+  id: string;
+  isActive: boolean;
+  inactiveReason?: string;
+  status: string;
+  pendingKyc: boolean;
+  pendingAml: boolean;
+}
+
+export interface OAuthAuthorizationStatusApp {
+  id: string;
+  clientId?: string;
+  name?: string;
+}
+
+export interface OAuthAuthorizationStatusData {
+  authorization: OAuthAuthorizationStatus;
+  scopes: string[];
+  expiresAt: string;
+  tokenType: string;
+  app: OAuthAuthorizationStatusApp;
+}
+
+export interface OAuthAuthorizationStatusResponse {
+  meta: ApiMeta;
+  data: OAuthAuthorizationStatusData;
+}
+
 export interface OAuthSocialHandle {
   provider: string;
   handle: string;

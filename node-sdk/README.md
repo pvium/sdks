@@ -77,6 +77,7 @@ The `pvium.oauth` service exposes OAuth helper operations:
 - `exchangeCodeForToken({ code, redirectUri })`
 - `refreshAccessToken({ refreshToken })`
 - `getAccessTokenFromRefreshToken({ refreshToken })`
+- `getAuthorizationStatus(accessToken)`
 - `getUserInfo({ accessToken })`
 
 When creating invite bundles for an OAuth flow, pass `redirectUri` so generated
@@ -127,6 +128,15 @@ by the code exchange. This calls `POST /v1/client-apps/oauth2/token` with
 const refreshed = await pvium.oauth.getAccessTokenFromRefreshToken({
   refreshToken: tokens.data.refreshToken as string,
 });
+
+const status = await pvium.oauth.getAuthorizationStatus(
+  refreshed.data.accessToken,
+);
+
+if (!status.data.authorization.isActive) {
+  // Inspect status.data.authorization.status / inactiveReason before allowing
+  // sensitive actions in your integration.
+}
 
 await pvium.endpoints.listInvoices({
   accessToken: refreshed.data.accessToken,
