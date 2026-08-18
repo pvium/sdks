@@ -216,6 +216,14 @@ export interface PayoutFinalizeOptions {
   lockDuration?: number;
   timestamp?: number;
   signerAddress?: string;
+  /**
+   * Where to send the funder once this batch is funded. Must match a redirect
+   * URI registered on the app (a registered pattern may end in `/*` to allow a
+   * path prefix). Supplied at finalization rather than creation because that is
+   * where the funding link is minted — and because a pool is finalized per
+   * funding round, so each round can return the funder somewhere different.
+   */
+  redirectUri?: string;
 }
 
 export interface PayoutMessageSignature {
@@ -2329,6 +2337,10 @@ export class PviumPayoutService {
       updatePayload.signer = signerAddress;
       updatePayload.batchSignature = `${timestamp}:${signerAddress}:${signature.signature}`;
       updatePayload.batchDataHash = batchDataHash;
+    }
+
+    if (options.redirectUri) {
+      updatePayload.redirectUri = options.redirectUri;
     }
 
     const response = await this.http.request({
