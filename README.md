@@ -106,6 +106,24 @@ cd go-sdk && go test ./...
 The parity fixtures are shared across SDKs to keep payout hashing, signing, and
 Merkle behavior consistent.
 
+## Payability method parity
+
+All three SDKs send `POST /v1/batch-payments/:batchId/is-payable` with
+`{"identities":[{"type":"email","value":"alice@example.com"}]}`.
+
+| SDK | Service method | Payout intent method |
+| --- | --- | --- |
+| Node | `pvium.payout.isPayable(payoutId, identities, options?)` | `intent.isPayable(identities, options?)` |
+| Python | `pvium.payout.isPayable(payout_id, identities, options=None)` | `intent.isPayable(identities, options=None)` |
+| Go | `sdk.Payouts.IsPayable(ctx, payoutID, identities, options)` | `intent.IsPayable(ctx, identities, options)` |
+
+Each SDK README documents required scopes, response fields, request limits,
+and Open/Strict behavior. Shared [payability fixtures](parity-fixtures/payability.json)
+cover request method/path/body, response fields, ordered mixed outcomes, and
+Open-mode nulls. Tests also verify request-option forwarding and intent helpers.
+This is method-specific parity; the historical sync marker is not advanced by
+uncommitted changes.
+
 ## Releases
 
 The TypeScript SDK publishes `@pvium/sdk` to npm from

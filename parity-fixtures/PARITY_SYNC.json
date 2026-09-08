@@ -6,6 +6,7 @@
     "scheduled-payout-finalize.json",
     "signing-key-authorization.json",
     "finalize-claim-request.json",
-    "open-organization-invite.json"
+    "open-organization-invite.json",
+    "payability.json"
   ]
 }

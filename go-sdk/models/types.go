@@ -610,3 +610,32 @@ type VerifyPviumWebhookTokenOptions struct {
 	Now                       time.Time `json:"now,omitempty"`
 	AllowHashedSecretFallback *bool     `json:"allowHashedSecretFallback,omitempty"`
 }
+
+// PayoutPayabilityIdentity identifies a recipient without creating a payment.
+type PayoutPayabilityIdentity struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
+}
+
+type PayoutPayabilityBlocker string
+
+type PayoutPayabilityRecipient struct {
+	PayoutPayabilityIdentity
+	IsPayable bool `json:"isPayable"`
+	// Nil means not checked for Open batches; false means checked and absent.
+	IsRegistered        *bool                     `json:"isRegistered"`
+	IsInvited           *bool                     `json:"isInvited"`
+	InvitationStatus    *string                   `json:"invitationStatus"`
+	AuthorizationStatus *string                   `json:"authorizationStatus"`
+	MissingScopes       []string                  `json:"missingScopes"`
+	Blockers            []PayoutPayabilityBlocker `json:"blockers"`
+}
+
+type PayoutPayabilityResult struct {
+	BatchID        string                      `json:"batchId"`
+	Chain          string                      `json:"chain"`
+	ComplianceMode string                      `json:"complianceMode"`
+	ChecksRequired bool                        `json:"checksRequired"`
+	RequiredScopes []string                    `json:"requiredScopes"`
+	Recipients     []PayoutPayabilityRecipient `json:"recipients"`
+}

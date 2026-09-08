@@ -134,6 +134,42 @@ export interface PayoutRecipient {
   memo?: string;
 }
 
+export interface PayoutPayabilityIdentity {
+  type: string;
+  value: string;
+}
+
+export type PayoutPayabilityBlocker =
+  | 'USER_NOT_REGISTERED'
+  | 'INVITATION_REQUIRED'
+  | 'AUTHORIZATION_REQUIRED'
+  | 'AUTHORIZATION_REVOKED'
+  | 'AUTHORIZATION_INACTIVE'
+  | 'KYC_REQUIRED'
+  | 'AML_PENDING'
+  | 'MISSING_SCOPES'
+  | 'TAX_FORM_REQUIRED'
+  | 'WALLET_REQUIRED';
+
+export interface PayoutPayabilityRecipient extends PayoutPayabilityIdentity {
+  isPayable: boolean;
+  isRegistered: boolean | null;
+  isInvited: boolean | null;
+  invitationStatus: string | null;
+  authorizationStatus: string | null;
+  missingScopes: string[];
+  blockers: PayoutPayabilityBlocker[];
+}
+
+export interface PayoutPayabilityResult {
+  batchId: string;
+  chain: string;
+  complianceMode: PayoutComplianceMode;
+  checksRequired: boolean;
+  requiredScopes: string[];
+  recipients: PayoutPayabilityRecipient[];
+}
+
 export interface ResolvePayoutRecipient {
   identityType: string;
   identityValue: string;
@@ -452,6 +488,13 @@ export class PayoutIntent implements PayoutRecord {
     options?: RequestOptions,
   ): Promise<PayoutApiResponse<AddPayoutRecipientsResult>> {
     return this.service.addRecipients(this.id, input, options);
+  }
+
+  async isPayable(
+    identities: PayoutPayabilityIdentity[],
+    options?: RequestOptions,
+  ): Promise<PayoutApiResponse<PayoutPayabilityResult>> {
+    return this.service.isPayable(this.id, identities, options);
   }
 
   async resolveRecipients(
@@ -1863,6 +1906,21 @@ export class PviumPayoutService {
     });
 
     return this.parse<PayoutApiResponse<AddPayoutRecipientsResult>>(response);
+  }
+
+  /** Read-only batch-scoped compliance snapshot. Does not add recipients. */
+  async isPayable(
+    payoutId: string,
+    identities: PayoutPayabilityIdentity[],
+    options?: RequestOptions,
+  ): Promise<PayoutApiResponse<PayoutPayabilityResult>> {
+    const response = await this.http.request({
+      method: 'POST',
+      path: `/v1/batch-payments/${encodeURIComponent(payoutId)}/is-payable`,
+      body: { identities },
+      options,
+    });
+    return this.parse<PayoutApiResponse<PayoutPayabilityResult>>(response);
   }
 
   async resolveRecipients(

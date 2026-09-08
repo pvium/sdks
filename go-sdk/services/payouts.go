@@ -61,6 +61,13 @@ func (p *PayoutIntent) AddRecipients(ctx context.Context, recipients []models.Pa
 	return p.service.AddRecipients(ctx, p.ID, recipients, options)
 }
 
+func (p *PayoutIntent) IsPayable(ctx context.Context, identities []models.PayoutPayabilityIdentity, options *models.RequestOptions) (models.APIResponse[models.PayoutPayabilityResult], error) {
+	if p == nil || p.service == nil {
+		return models.APIResponse[models.PayoutPayabilityResult]{}, errors.New("payout intent is not bound to a payout service")
+	}
+	return p.service.IsPayable(ctx, p.ID, identities, options)
+}
+
 func (p *PayoutIntent) ResolveRecipients(ctx context.Context, recipients []models.ResolvePayoutRecipient, options *models.RequestOptions) (models.APIResponse[models.ResolvePayoutRecipientsResult], error) {
 	if p == nil || p.service == nil {
 		return models.APIResponse[models.ResolvePayoutRecipientsResult]{}, errors.New("payout intent is not bound to a payout service")
@@ -475,6 +482,15 @@ func (s *PayoutService) AddRecipients(ctx context.Context, payoutID string, reci
 		return models.APIResponse[models.AddPayoutRecipientsResult]{}, err
 	}
 	return transport.Decode[models.APIResponse[models.AddPayoutRecipientsResult]](raw)
+}
+
+// IsPayable returns a read-only batch compliance snapshot without adding recipients.
+func (s *PayoutService) IsPayable(ctx context.Context, payoutID string, identities []models.PayoutPayabilityIdentity, options *models.RequestOptions) (models.APIResponse[models.PayoutPayabilityResult], error) {
+	raw, _, err := s.client.Do(ctx, transport.Request{Method: "POST", Path: fmt.Sprintf("/batch-payments/%s/is-payable", payoutID), Body: map[string]any{"identities": identities}, Options: options})
+	if err != nil {
+		return models.APIResponse[models.PayoutPayabilityResult]{}, err
+	}
+	return transport.Decode[models.APIResponse[models.PayoutPayabilityResult]](raw)
 }
 
 func (s *PayoutService) ResolveRecipients(ctx context.Context, payoutID string, recipients []models.ResolvePayoutRecipient, options *models.RequestOptions) (models.APIResponse[models.ResolvePayoutRecipientsResult], error) {

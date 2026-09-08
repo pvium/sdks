@@ -182,7 +182,10 @@ const webhook = resolvePviumWebhookPayload(
   process.env.PVIUM_WEBHOOK_SECRET as string,
 );
 
-if (webhook.event === 'oauth.invite.accepted') {
+if (
+  webhook.event === 'oauth.invite.accepted' ||
+  webhook.event === 'oauth.authorization.activated'
+) {
   const data = webhook.data; // verified, typed via generic
 }
 ```
@@ -203,7 +206,7 @@ const payload = verifyPviumWebhookToken<{ appId: string }>(
   token,
   process.env.PVIUM_WEBHOOK_SECRET as string,
   {
-    expectedEvent: 'oauth.invite.accepted', // optional; throws on mismatch
+    expectedEvent: 'oauth.authorization.activated', // optional; throws on mismatch
     now: Date.now(), // optional; for testing/clock skew
     allowHashedSecretFallback: true, // optional; default true
   },
@@ -280,7 +283,10 @@ Fired when a transfer is attached to a contract installment.
 
 #### `oauth.invite.accepted`
 
-Fired when an invited identity completes the OAuth flow against your app.
+Fired when an invited identity completes the OAuth flow and its authorization is
+active immediately. If the invite scopes require payee screening, the
+authorization remains pending and this event is not the readiness signal; use
+`oauth.authorization.activated` when it becomes active.
 
 ```jsonc
 {
@@ -313,6 +319,36 @@ Fired when an invited identity completes the OAuth flow against your app.
     "batchId": "uuid-or-null",
     "acceptedAt": "2026-05-12T18:31:04.000Z",
   },
+}
+```
+
+#### `oauth.authorization.activated`
+
+Fired when a previously pending invite authorization becomes active after the
+required onboarding checks for the invite scopes complete. This includes payee
+screening when it is required. The event confirms an active
+authorization, not batch-specific payability. For Strict payouts, call
+`payout.isPayable(batchId, identities)` before adding recipients or finalizing.
+
+```jsonc
+{
+  "appId": "65f...",
+  "clientId": "app_abcd1234",
+  "pviumUserId": "67d...",
+  "user": { "id": "67d...", "handle": "alice", "email": "alice@example.com" },
+  "authorization": {
+    "id": "aa1...",
+    "isActive": true,
+    "status": "active",
+    "scopes": ["read:user", "read:legal_id", "read:tax_forms"],
+    "activatedAt": "2026-05-12T18:31:04.000Z"
+  },
+  "previousStatus": "pending_aml",
+  "invite": {
+    "identityType": "email",
+    "identityValue": "alice@example.com",
+    "batchId": "uuid-or-null"
+  }
 }
 ```
 
@@ -576,6 +612,54 @@ browser apps should pass wallet signing callbacks instead.
 
 Single-payout responses are returned as payout intent objects. Payout fields are
 available at the top level and helper methods can be called directly.
+
+### Check recipient payability (read-only)
+
+```ts
+const result = await pvium.payout.isPayable(payoutId, [
+  { type: 'email', value: 'alice@example.com' },
+  { type: 'email', value: 'bob@example.com' },
+]);
+for (const recipient of result.data.recipients) {
+  console.log(recipient.value, recipient.isPayable, recipient.blockers);
+}
+// Also available on a payout intent: await payoutIntent.isPayable(identities).
+```
+
+Uses `POST /v1/batch-payments/:batchId/is-payable` with a JSON body:
+
+```json
+{"identities":[{"type":"email","value":"alice@example.com"}]}
+```
+
+POST and GET use the same read-only handler, validation, and response. The endpoint
+requires `read:batch_payment`, allows 1–50 identities and at most 4096 bytes of
+JSON-serialized identities, and returns `Cache-Control: no-store`. Split larger
+lookups into smaller requests. GET remains available with an `identities`
+URL-encoded JSON query parameter; the SDK uses POST so recipient identifiers
+are carried in the body instead of the URL.
+
+The response includes the effective `complianceMode` (including a parent pool),
+`checksRequired`, `requiredScopes`, and ordered `recipients`. Each recipient has
+`type`, normalized `value`, `isPayable`, `isRegistered`, `isInvited`,
+`invitationStatus`, `authorizationStatus`, `missingScopes`, and `blockers`.
+Unregistered and not-yet-invited identities return results rather than 404s.
+Invitation status describes the latest applicable organization or batch invite;
+an accepted invitation alone does not establish payability. An existing valid
+authorization can make a recipient payable without a new invite.
+
+Strict requires `read:user`, `read:legal_id`, `read:tax_forms` and the batch's
+wallet scope (`read:ethereum_wallet` or `read:solana_wallet`). Legacy `read:kyc`
+also satisfies `read:legal_id`. Checks include current authorization, payee
+identity verification, a current qualifying tax form for the payer business,
+and the authorized wallet. Pending payee screening blocks payment; the lookup
+does not initiate screening.
+
+For Open batches, `checksRequired` is false, all syntactically valid identities
+have `isPayable: true`, and registration/invitation fields are null because no
+user lookup is required. This means compliance eligibility, not successful
+identity resolution, funding, or execution. The endpoint does not create invites
+or payment rows. Strict recipient addition rechecks the same eligibility rules.
 
 ### Instant Payouts
 
