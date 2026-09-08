@@ -130,6 +130,19 @@ invoices = await sdk.endpoints.listInvoices()
 pytest
 ```
 
+## Webhook events
+
+`oauth.invite.accepted` is emitted when an invited user's authorization becomes
+active immediately. If the invite scopes require payee screening, the
+authorization remains pending until those checks complete; then handle
+`oauth.authorization.activated`. That event confirms an active authorization,
+not batch-specific payability. For Strict payouts, call
+`pvium.payout.isPayable(batch_id, identities)` before adding recipients or
+finalizing.
+
+See the [canonical webhook event reference](../node-sdk/README.md#events-and-payloads)
+for payload shapes and delivery semantics.
+
 ## Services
 
 - `pvium.endpoints`
@@ -274,9 +287,10 @@ authorization can make a recipient payable without a new invite.
 
 Strict requires `read:user`, `read:legal_id`, `read:tax_forms` and the batch's
 wallet scope (`read:ethereum_wallet` or `read:solana_wallet`). Legacy `read:kyc`
-also satisfies `read:legal_id`. Checks include current authorization, KYC, a
-current qualifying tax form for the payer business, and the authorized wallet.
-Pending AML authorization blocks payment; the lookup does not initiate screening.
+also satisfies `read:legal_id`. Checks include current authorization, payee
+identity verification, a current qualifying tax form for the payer business,
+and the authorized wallet. Pending payee screening blocks payment; the lookup
+does not initiate screening.
 
 For Open batches, `checksRequired` is false, all syntactically valid identities
 have `isPayable: true`, and registration/invitation fields are null because no

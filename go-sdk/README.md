@@ -206,7 +206,7 @@ if err != nil {
 	return
 }
 
-if webhook.Event == "oauth.invite.accepted" {
+if webhook.Event == "oauth.invite.accepted" || webhook.Event == "oauth.authorization.activated" {
 	data := webhook.Data
 	fmt.Println(data["appId"])
 }
@@ -234,6 +234,12 @@ fmt.Println(payload.Event, payload.Data, payload.Iat, payload.Exp)
 ```
 
 `VerifyPviumWebhookToken` accepts `ExpectedEvent`, `Now`, and `AllowHashedSecretFallback`. See the TypeScript SDK README's [`verifyPviumWebhookToken` section](../node-sdk/README.md#verifypviumwebhooktoken-low-level) for shared verification behavior.
+
+`oauth.invite.accepted` is emitted when the authorization is active immediately.
+If invite scopes require payee screening, the authorization stays pending until
+those checks complete and the SDK receives `oauth.authorization.activated`
+instead. Activation confirms the authorization state, not batch-specific
+payability; use the payout payability check before a Strict payout operation.
 
 ## OAuth Invite Links
 
@@ -477,9 +483,10 @@ authorization can make a recipient payable without a new invite.
 
 Strict requires `read:user`, `read:legal_id`, `read:tax_forms` and the batch's
 wallet scope (`read:ethereum_wallet` or `read:solana_wallet`). Legacy `read:kyc`
-also satisfies `read:legal_id`. Checks include current authorization, KYC, a
-current qualifying tax form for the payer business, and the authorized wallet.
-Pending AML authorization blocks payment; the lookup does not initiate screening.
+also satisfies `read:legal_id`. Checks include current authorization, payee
+identity verification, a current qualifying tax form for the payer business,
+and the authorized wallet. Pending payee screening blocks payment; the lookup
+does not initiate screening.
 
 For Open batches, `checksRequired` is false, all syntactically valid identities
 have `isPayable: true`, and registration/invitation fields are null because no
