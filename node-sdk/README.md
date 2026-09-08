@@ -577,6 +577,53 @@ browser apps should pass wallet signing callbacks instead.
 Single-payout responses are returned as payout intent objects. Payout fields are
 available at the top level and helper methods can be called directly.
 
+### Check recipient payability (read-only)
+
+```ts
+const result = await pvium.payout.isPayable(payoutId, [
+  { type: 'email', value: 'alice@example.com' },
+  { type: 'email', value: 'bob@example.com' },
+]);
+for (const recipient of result.data.recipients) {
+  console.log(recipient.value, recipient.isPayable, recipient.blockers);
+}
+// Also available on a payout intent: await payoutIntent.isPayable(identities).
+```
+
+Uses `POST /v1/batch-payments/:batchId/is-payable` with a JSON body:
+
+```json
+{"identities":[{"type":"email","value":"alice@example.com"}]}
+```
+
+POST and GET use the same read-only handler, validation, and response. The endpoint
+requires `read:batch_payment`, allows 1–50 identities and at most 4096 bytes of
+JSON-serialized identities, and returns `Cache-Control: no-store`. Split larger
+lookups into smaller requests. GET remains available with an `identities`
+URL-encoded JSON query parameter; the SDK uses POST so recipient identifiers
+are carried in the body instead of the URL.
+
+The response includes the effective `complianceMode` (including a parent pool),
+`checksRequired`, `requiredScopes`, and ordered `recipients`. Each recipient has
+`type`, normalized `value`, `isPayable`, `isRegistered`, `isInvited`,
+`invitationStatus`, `authorizationStatus`, `missingScopes`, and `blockers`.
+Unregistered and not-yet-invited identities return results rather than 404s.
+Invitation status describes the latest applicable organization or batch invite;
+an accepted invitation alone does not establish payability. An existing valid
+authorization can make a recipient payable without a new invite.
+
+Strict requires `read:user`, `read:legal_id`, `read:tax_forms` and the batch's
+wallet scope (`read:ethereum_wallet` or `read:solana_wallet`). Legacy `read:kyc`
+also satisfies `read:legal_id`. Checks include current authorization, KYC, a
+current qualifying tax form for the payer business, and the authorized wallet.
+Pending AML authorization blocks payment; the lookup does not initiate screening.
+
+For Open batches, `checksRequired` is false, all syntactically valid identities
+have `isPayable: true`, and registration/invitation fields are null because no
+user lookup is required. This means compliance eligibility, not successful
+identity resolution, funding, or execution. The endpoint does not create invites
+or payment rows. Strict recipient addition rechecks the same eligibility rules.
+
 ### Instant Payouts
 
 Instant payouts are created with payees, then finalized. Finalization signs the

@@ -302,3 +302,8 @@ func VerifyPviumWebhookToken(token, secret string, options *VerifyPviumWebhookTo
 func ResolvePviumWebhookPayload(body map[string]any, secret string) (PviumWebhookTokenPayload, error) {
 	return pvwebhooks.ResolvePviumWebhookPayload(body, secret)
 }
+
+type PayoutPayabilityIdentity = models.PayoutPayabilityIdentity
+type PayoutPayabilityBlocker = models.PayoutPayabilityBlocker
+type PayoutPayabilityRecipient = models.PayoutPayabilityRecipient
+type PayoutPayabilityResult = models.PayoutPayabilityResult

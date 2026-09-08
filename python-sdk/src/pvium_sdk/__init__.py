@@ -1,3 +1,4 @@
+from .types import PayoutPayabilityIdentity, PayoutPayabilityRecipient, PayoutPayabilityResult, PayoutPayabilityResponse
 from .client import (
     PVIUM_BASE_URLS,
     PVIUM_CONSENT_HOSTS,
@@ -69,6 +70,10 @@ from .signing import (
 from .webhooks import resolvePviumWebhookPayload, verifyPviumWebhookToken
 
 __all__ = [
+    "PayoutPayabilityIdentity",
+    "PayoutPayabilityRecipient",
+    "PayoutPayabilityResult",
+    "PayoutPayabilityResponse",
     "PviumSdk",
     "AsyncPviumSdk",
     "PviumSdkConfig",

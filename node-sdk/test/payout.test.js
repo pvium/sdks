@@ -1134,3 +1134,55 @@ test("computeScheduledPayoutHash matches backend scheduled hash formula", () => 
     expected,
   );
 });
+
+
+test("payout.isPayable sends identities in a POST body without a query", async () => {
+  const data = {
+    batchId: "batch/1", chain: "base", complianceMode: "Strict",
+    checksRequired: true, requiredScopes: ["read:user"],
+    recipients: [{ type: "email", value: "alice+test@example.com", isPayable: false,
+      isRegistered: false, isInvited: false, invitationStatus: null,
+      authorizationStatus: null, missingScopes: ["read:user"],
+      blockers: ["USER_NOT_REGISTERED", "INVITATION_REQUIRED"] }],
+  };
+  const { sdk, requests } = createMockSdk({ meta: {success: true}, data });
+  const identities = [
+    {type: "email", value: "alice+test@example.com"},
+    {type: "github", value: "octocat"},
+  ];
+  const result = await sdk.payout.isPayable("batch/1", identities);
+  const url = new URL(requests[0].url);
+  assert.equal(requests[0].init.method, "POST");
+  assert.deepEqual(JSON.parse(requests[0].init.body), { identities });
+  assert.equal(url.pathname, "/v1/batch-payments/batch%2F1/is-payable");
+  assert.equal(url.search, "");
+  assert.deepEqual(result.data, data);
+});
+
+test("payout intent exposes isPayable and forwards auth options", async () => {
+  const { sdk, requests } = createMockSdk({ meta: {success: true},
+    data: {id: "batch_1", chain: "base", paymentType: "Scheduled"} });
+  const intent = await sdk.payout.get("batch_1");
+  await intent.isPayable([{type: "email", value: "alice@example.com"}], {accessToken: "user-token"});
+  const headers = new Headers(requests[1].init.headers);
+  assert.equal(requests[1].init.method, "POST");
+  assert.equal(headers.get("authorization"), "Bearer user-token");
+  assert.equal(new URL(requests[1].url).pathname, "/v1/batch-payments/batch_1/is-payable");
+});
+
+
+test("payability matches shared request and response fixtures", async () => {
+  const fixture = require("../../parity-fixtures/payability.json");
+  for (const response of fixture.responses) {
+    const {sdk, requests} = createMockSdk(response);
+    const result = await sdk.payout.isPayable(fixture.payoutId, fixture.body.identities, {accessToken: "parity-token"});
+    const {url, init} = requests[0];
+    assert.equal(init.method, fixture.method);
+    assert.equal(new URL(url).pathname, fixture.path);
+    assert.equal(new URL(url).search, "");
+    assert.deepEqual(JSON.parse(init.body), fixture.body);
+    assert.equal(new Headers(init.headers).get("authorization"), "Bearer parity-token");
+    assert.equal(new Headers(init.headers).get("x-api-key"), null);
+    assert.deepEqual(result, response);
+  }
+});

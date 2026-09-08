@@ -18,7 +18,7 @@ from eth_keys import keys
 from eth_utils import keccak, to_checksum_address
 
 from ...core.client import PviumHttpClient, PviumSdkConfig, resolvePviumConsentHost
-from ...core.types import RequestOptions
+from ...core.types import RequestOptions, PayoutPayabilityIdentity, PayoutPayabilityResponse
 
 
 HexString = str
@@ -126,6 +126,9 @@ class PayoutIntent(dict):
 
     def addRecipients(self, input: Union[Dict[str, Any], List[Dict[str, Any]]], options: Optional[RequestOptions] = None):
         return self._service.addRecipients(self["data"]["id"], input, options)
+
+    def isPayable(self, identities: List[PayoutPayabilityIdentity], options: Optional[RequestOptions] = None) -> PayoutPayabilityResponse:
+        return self._service.isPayable(self["data"]["id"], identities, options)
 
     def resolveRecipients(self, input: Union[Dict[str, Any], List[Dict[str, Any]]], options: Optional[RequestOptions] = None):
         return self._service.resolveRecipients(self["data"]["id"], input, options)
@@ -1001,6 +1004,16 @@ class PviumPayoutService:
             "POST",
             f"/v1/batch-payments/{quote(str(payout_id), safe='')}/open-payees",
             body={"recipients": recipients},
+            options=options,
+        )
+        return self._parse(response)
+
+    def isPayable(self, payout_id: str, identities: List[PayoutPayabilityIdentity], options: Optional[RequestOptions] = None) -> PayoutPayabilityResponse:
+        """Read-only batch compliance snapshot; sends identities in a POST body."""
+        response = self.http.request(
+            "POST",
+            f"/v1/batch-payments/{quote(str(payout_id), safe='')}/is-payable",
+            body={"identities": identities},
             options=options,
         )
         return self._parse(response)

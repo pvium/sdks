@@ -1,0 +1,106 @@
+{
+  "payoutId": "batch 1",
+  "method": "POST",
+  "path": "/v1/batch-payments/batch%201/is-payable",
+  "body": {
+    "identities": [
+      {
+        "type": "email",
+        "value": "alice+test@example.com"
+      },
+      {
+        "type": "github",
+        "value": "octocat"
+      }
+    ]
+  },
+  "responses": [
+    {
+      "meta": {
+        "statusCode": 200,
+        "success": true
+      },
+      "data": {
+        "batchId": "batch 1",
+        "chain": "base",
+        "complianceMode": "Strict",
+        "checksRequired": true,
+        "requiredScopes": [
+          "read:user",
+          "read:legal_id",
+          "read:tax_forms",
+          "read:ethereum_wallet"
+        ],
+        "recipients": [
+          {
+            "type": "email",
+            "value": "alice+test@example.com",
+            "isPayable": false,
+            "isRegistered": false,
+            "isInvited": false,
+            "invitationStatus": null,
+            "authorizationStatus": null,
+            "missingScopes": [
+              "read:user",
+              "read:legal_id",
+              "read:tax_forms",
+              "read:ethereum_wallet"
+            ],
+            "blockers": [
+              "USER_NOT_REGISTERED",
+              "INVITATION_REQUIRED"
+            ]
+          },
+          {
+            "type": "github",
+            "value": "octocat",
+            "isPayable": true,
+            "isRegistered": true,
+            "isInvited": true,
+            "invitationStatus": "accepted",
+            "authorizationStatus": "active",
+            "missingScopes": [],
+            "blockers": []
+          }
+        ]
+      }
+    },
+    {
+      "meta": {
+        "statusCode": 200,
+        "success": true
+      },
+      "data": {
+        "batchId": "batch 1",
+        "chain": "base",
+        "complianceMode": "Open",
+        "checksRequired": false,
+        "requiredScopes": [],
+        "recipients": [
+          {
+            "type": "email",
+            "value": "alice+test@example.com",
+            "isPayable": true,
+            "isRegistered": null,
+            "isInvited": null,
+            "invitationStatus": null,
+            "authorizationStatus": null,
+            "missingScopes": [],
+            "blockers": []
+          },
+          {
+            "type": "github",
+            "value": "octocat",
+            "isPayable": true,
+            "isRegistered": null,
+            "isInvited": null,
+            "invitationStatus": null,
+            "authorizationStatus": null,
+            "missingScopes": [],
+            "blockers": []
+          }
+        ]
+      }
+    }
+  ]
+}

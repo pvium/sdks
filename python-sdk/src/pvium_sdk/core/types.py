@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 
 class RequestOptions(TypedDict, total=False):
@@ -67,3 +67,32 @@ def require_ok_response(body: Any, status_code: int) -> Any:
         return body
 
     raise RuntimeError(f"Pvium API request failed with status {status_code}")
+
+
+class PayoutPayabilityIdentity(TypedDict):
+    type: str
+    value: str
+
+
+class PayoutPayabilityRecipient(PayoutPayabilityIdentity):
+    isPayable: bool
+    isRegistered: Optional[bool]
+    isInvited: Optional[bool]
+    invitationStatus: Optional[str]
+    authorizationStatus: Optional[str]
+    missingScopes: List[str]
+    blockers: List[str]
+
+
+class PayoutPayabilityResult(TypedDict):
+    batchId: str
+    chain: str
+    complianceMode: str
+    checksRequired: bool
+    requiredScopes: List[str]
+    recipients: List[PayoutPayabilityRecipient]
+
+
+class PayoutPayabilityResponse(TypedDict):
+    meta: ApiMeta
+    data: PayoutPayabilityResult
