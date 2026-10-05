@@ -9,6 +9,7 @@ import {
   solidityPacked,
 } from 'ethers';
 import { MerkleTree } from 'merkletreejs';
+import { p2idAddress } from '@pvium/p2id-core';
 import {
   PviumHttpClient,
   PviumSdkConfig,
@@ -199,6 +200,49 @@ export interface PayoutPaymentsListQuery {
   limit?: number;
 }
 
+/**
+ * The provider-agnostic P2ID identity types — canonical `@pvium/p2id-core` names. The SDK speaks
+ * these everywhere: developers pass them to `resolveRecipients`, and the API returns them (it maps
+ * its internal Privy account types to these on the way out). So an attestation's `identityType`
+ * flows straight into `verifyIdentity` from `@pvium/p2id-verifier` with no mapping.
+ */
+export const P2ID_IDENTITY_TYPES = [
+  'email', 'phone', 'google', 'x', 'discord', 'github',
+  'linkedin', 'apple', 'telegram', 'tiktok', 'instagram', 'farcaster', 'wallet',
+] as const;
+export type P2idIdentityType = (typeof P2ID_IDENTITY_TYPES)[number];
+
+/**
+ * ZK attestation summary: the resolved identity (email / social handle) and `receiver` belong to
+ * the same Privy user. Pass it to `payouts.getAttestation()` for the proof bytes, then to
+ * `verifyIdentity` from `@pvium/zk-verifier`. `null` for wallet identities or when no attestation
+ * exists yet (one is requested in the background; re-resolve later).
+ */
+export interface PayoutRecipientAttestation {
+  publicId: string;
+  url: string;
+  /** Canonical p2id identity type the proof is for (e.g. 'github', 'x'). */
+  identityType: P2idIdentityType;
+  /** When Privy issued the token the proof was made from (unix seconds). Freshness is your policy. */
+  issuedAt: number;
+  circuitVersion: number;
+  vkHash: string;
+}
+
+/**
+ * A full attestation: exactly the `attestation` argument `@pvium/zk-verifier`'s `verifyIdentity`
+ * takes, plus the identity type it was made for.
+ */
+export interface PayoutAttestation {
+  proof: string;
+  publicInputs: string;
+  wallet: string;
+  identityType: P2idIdentityType;
+  issuedAt: number;
+  circuitVersion: number;
+  vkHash: string;
+}
+
 export interface PayoutRecipientResult {
   identity?: string;
   identityType?: string;
@@ -209,6 +253,9 @@ export interface PayoutRecipientResult {
   ethereumWallet?: string;
   solanaWallet?: string;
   receiver?: string;
+  attestation?: PayoutRecipientAttestation | null;
+  /** True when this recipient was injected by the SDK as a P2ID (unregisteredIdentity: 'p2id'). */
+  p2id?: boolean;
   [key: string]: unknown;
 }
 
@@ -228,6 +275,39 @@ export interface AddPayoutRecipientsResult {
 export interface ResolvePayoutRecipientsResult {
   resolved: PayoutRecipientResult[];
   errors: PayoutRecipientError[];
+}
+
+/**
+ * What to do with payee identities the backend could not resolve to a wallet.
+ * - `reject` (default): throw, committing nothing.
+ * - `p2id`: derive a P2ID address for each unresolved identity and inject it as `receiver`.
+ *   Only valid for Open compliance batches.
+ */
+export type UnregisteredIdentityPolicy = 'p2id' | 'reject';
+
+/**
+ * A verifier the caller injects to check a resolved identity→wallet mapping before paying.
+ * Kept out of the SDK by default because the proving/verifying key material is large — pass
+ * `verifyIdentity` from `@pvium/p2id-verifier`. Return `false` (or throw) to fail the mapping.
+ */
+export type PayoutMappingVerifier = (input: {
+  attestation: PayoutAttestation;
+  identityType: P2idIdentityType;
+  identityValue: string;
+}) => boolean | Promise<boolean>;
+
+export interface ResolveRecipientsOptions extends RequestOptions {
+  /** How to handle identities the backend could not resolve. Default `reject`. */
+  unregisteredIdentity?: UnregisteredIdentityPolicy;
+  /** P2ID environment; defaults from the batch chain (testnet/localhost → `sandbox`). */
+  p2idEnvironment?: 'production' | 'sandbox';
+  /** P2ID address scheme override; defaults to `@pvium/p2id-core`'s current scheme. */
+  p2idScheme?: string;
+  /**
+   * When provided, every resolved recipient carrying an attestation is verified with this
+   * function; a failure throws. Fetches the full proof via `getAttestation` first.
+   */
+  verify?: PayoutMappingVerifier;
 }
 
 export interface PayoutListQuery {
@@ -422,6 +502,18 @@ export interface FinalizePayoutData {
   merkleRoot?: HexString;
 }
 
+/** The resolve `error.reason` marking an identity as unregistered (not on Pvium) — P2ID-eligible. */
+const UNREGISTERED_REASON = 'Recipient is not a Pvium user';
+
+/** Map a batch chain to a P2ID environment: testnets/localhost derive against the sandbox factory. */
+function p2idEnvironmentForChain(chain?: string): 'production' | 'sandbox' {
+  const c = (chain ?? '').toLowerCase();
+  if (c.includes('testnet') || c.includes('sepolia') || c.includes('local')) {
+    return 'sandbox';
+  }
+  return 'production';
+}
+
 export class PayoutIntent implements PayoutRecord {
   [key: string]: unknown;
 
@@ -499,9 +591,93 @@ export class PayoutIntent implements PayoutRecord {
 
   async resolveRecipients(
     input: ResolvePayoutRecipientsInput | ResolvePayoutRecipient[],
-    options?: RequestOptions,
-  ): Promise<PayoutApiResponse<ResolvePayoutRecipientsResult>> {
-    return this.service.resolveRecipients(this.id, input, options);
+    options: ResolveRecipientsOptions = {},
+  ): Promise<ResolvePayoutRecipientsResult> {
+    const response = await this.service.resolveRecipients(this.id, input, options);
+    const resolved = response.data.resolved ?? [];
+    const errors = response.data.errors ?? [];
+
+    // Optionally verify each resolved identity→wallet mapping with a caller-injected verifier.
+    if (options.verify) {
+      for (const recipient of resolved) {
+        if (!recipient.attestation) continue;
+        const attestation = await this.service.getAttestation(
+          recipient.attestation,
+          options,
+        );
+        const ok = await options.verify({
+          attestation,
+          identityType: attestation.identityType,
+          identityValue: String(recipient.identityValue ?? ''),
+        });
+        if (!ok) {
+          throw new Error(
+            `identity mapping verification failed for ${recipient.identityValue ?? recipient.identity ?? 'recipient'}`,
+          );
+        }
+      }
+    }
+
+    const policy = options.unregisteredIdentity ?? 'reject';
+
+    if (policy === 'reject') {
+      if (errors.length > 0) {
+        const names = errors
+          .map((e) => e.identityValue ?? e.identity)
+          .filter(Boolean);
+        throw new Error(
+          `resolveRecipients: ${errors.length} identity(ies) could not be resolved` +
+            `${names.length ? `: ${names.join(', ')}` : ''}. Set unregisteredIdentity: 'p2id' ` +
+            `to pay unregistered payees via a P2ID address, or invite/resolve them first.`,
+        );
+      }
+      return { resolved, errors };
+    }
+
+    // policy === 'p2id': inject a P2ID address only for unregistered identities
+    // ("Recipient is not a Pvium user"). Anything else (no wallet on chain, bad input) stays an error.
+    if (this.complianceMode !== 'Open') {
+      throw new Error(
+        "unregisteredIdentity: 'p2id' is only supported for Open compliance batches",
+      );
+    }
+    const environment =
+      options.p2idEnvironment ?? p2idEnvironmentForChain(this.chain);
+    const injected: PayoutRecipientResult[] = [];
+    const remainingErrors: PayoutRecipientError[] = [];
+    for (const error of errors) {
+      const eligible =
+        error.reason === UNREGISTERED_REASON &&
+        !!error.identityType &&
+        !!error.identityValue;
+      if (!eligible) {
+        remainingErrors.push(error);
+        continue;
+      }
+      let receiver: string;
+      try {
+        receiver = p2idAddress({
+          identityType: error.identityType as never,
+          identityValue: error.identityValue as string,
+          environment,
+          scheme: options.p2idScheme,
+        });
+      } catch (cause) {
+        throw new Error(
+          `could not derive a P2ID address for ${error.identityType}:${error.identityValue}: ` +
+            `${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+      }
+      injected.push({
+        identity: error.identity,
+        identityType: error.identityType,
+        identityValue: error.identityValue,
+        receiver,
+        p2id: true,
+      });
+    }
+
+    return { resolved: [...resolved, ...injected], errors: remainingErrors };
   }
 
   async removePayments(
@@ -1921,6 +2097,42 @@ export class PviumPayoutService {
       options,
     });
     return this.parse<PayoutApiResponse<PayoutPayabilityResult>>(response);
+  }
+
+  /**
+   * Fetch the full attestation behind a summary from `resolveRecipients` (or by its publicId).
+   * Follows the summary's `url` (the proof endpoint). The result is exactly what `verifyIdentity`
+   * from `@pvium/p2id-verifier` takes as `attestation`; `identityType` is canonical (e.g. 'github'):
+   *
+   *   const attestation = await payout.getAttestation(recipient.attestation);
+   *   const result = await verifyIdentity({ attestation, signer: AttestationSigner.Production,
+   *     identityType: attestation.identityType, identityValue: recipient.identityValue });
+   */
+  async getAttestation(
+    summaryOrId: PayoutRecipientAttestation | string,
+    options?: RequestOptions,
+  ): Promise<PayoutAttestation> {
+    let path: string;
+    let publicId: string;
+    if (typeof summaryOrId === 'string') {
+      publicId = summaryOrId;
+      path = `/proofs/${encodeURIComponent(publicId)}`;
+    } else {
+      publicId = summaryOrId.publicId;
+      // The attestation summary carries the full proof URL; use its path so we hit the same route.
+      try {
+        path = new URL(summaryOrId.url).pathname;
+      } catch {
+        path = `/proofs/${encodeURIComponent(publicId)}`;
+      }
+    }
+    const response = await this.http.request({ method: 'GET', path, options });
+    const parsed = await this.parse<PayoutApiResponse<{ attestation?: PayoutAttestation; status?: string }>>(response);
+    const attestation = parsed?.data?.attestation;
+    if (!attestation) {
+      throw new Error(`attestation ${publicId} is not available (status: ${parsed?.data?.status ?? 'unknown'})`);
+    }
+    return attestation;
   }
 
   async resolveRecipients(

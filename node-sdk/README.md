@@ -324,10 +324,12 @@ authorization remains pending and this event is not the readiness signal; use
 
 #### `oauth.authorization.activated`
 
-Fired when a previously pending invite authorization becomes active after the
-required onboarding checks for the invite scopes complete. This includes payee
-screening when it is required. The event confirms an active
-authorization, not batch-specific payability. For Strict payouts, call
+Fired whenever an invite authorization becomes active: immediately on
+acceptance when no checks are pending, or later once pending KYC or AML checks
+complete. `previousStatus` is present only in the second case.
+`authorization.wallets` lists the wallets the user authorized for the granted
+wallet scopes. The event confirms an active authorization, not batch-specific
+payability. For Strict payouts, call
 `payout.isPayable(batchId, identities)` before adding recipients or finalizing.
 
 ```jsonc
@@ -340,8 +342,9 @@ authorization, not batch-specific payability. For Strict payouts, call
     "id": "aa1...",
     "isActive": true,
     "status": "active",
-    "scopes": ["read:user", "read:legal_id", "read:tax_forms"],
-    "activatedAt": "2026-05-12T18:31:04.000Z"
+    "scopes": ["read:user", "read:legal_id", "read:tax_forms", "read:ethereum_wallet"],
+    "activatedAt": "2026-05-12T18:31:04.000Z",
+    "wallets": [{ "address": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e", "type": "ethereum" }]
   },
   "previousStatus": "pending_aml",
   "invite": {

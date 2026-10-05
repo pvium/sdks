@@ -164,6 +164,9 @@ export type {
   PayoutRecipient,
   PayoutRecipientError,
   PayoutRecipientResult,
+  PayoutRecipientAttestation,
+  PayoutAttestation,
+  P2idIdentityType,
   PayoutRecord,
   PayoutSigningKeyAuthorization,
   PayoutSigningKeyAuthorizationData,
@@ -177,6 +180,9 @@ export type {
   ResolvePayoutRecipient,
   ResolvePayoutRecipientsInput,
   ResolvePayoutRecipientsResult,
+  ResolveRecipientsOptions,
+  UnregisteredIdentityPolicy,
+  PayoutMappingVerifier,
   UpdatePayoutPaymentInput,
 } from "./payout";
 
@@ -199,3 +205,4 @@ export class PviumSdk {
     return new PviumSdk(config);
   }
 }
+export { P2ID_IDENTITY_TYPES } from './payout';
