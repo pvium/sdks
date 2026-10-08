@@ -24,10 +24,10 @@
   resolved "https://registry.npmjs.org/@noble/hashes/-/hashes-1.8.0.tgz"
   integrity sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==
 
-"@pvium/p2id-core@^0.4.0":
-  version "0.4.0"
-  resolved "https://registry.yarnpkg.com/@pvium/p2id-core/-/p2id-core-0.4.0.tgz#296ca1508b29b87540f9e29b88b99b28e4de9c0e"
-  integrity sha512-cgEwRD25hoeYhNeGLEaICO9y/Hnx1x/zRN3yuIVmNU8oteAysD5co1ETqqLUPSx0cIfoxRSKwEZK4jIqnP4dzg==
+"@pvium/p2id-core@^1.0.0":
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/@pvium/p2id-core/-/p2id-core-1.0.0.tgz#3e69861f7e07f98f5cfe9ca5b53bc575db234fd7"
+  integrity sha512-1U1r9PLyeulXbq5VlBfpODi2vASu4L/uUfdsAjOllgw95easQH/oBA9ACsEwIG7Zu+wYxo/JCOoRHC6ZE7SxUg==
   dependencies:
     "@noble/hashes" "^1.5.0"
 

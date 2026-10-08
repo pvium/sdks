@@ -1,6 +1,6 @@
 {
   "name": "@pvium/sdk",
-  "version": "3.0.5",
+  "version": "3.0.6",
   "description": "TypeScript SDK for the Pvium API",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -33,7 +33,7 @@
     "typescript": "^5.8.2"
   },
   "dependencies": {
-    "@pvium/p2id-core": "^0.4.0",
+    "@pvium/p2id-core": "^1.0.0",
     "crypto-js": "^4.2.0",
     "ethers": "^6.16.0",
     "keccak256": "^1.0.6",
